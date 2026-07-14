@@ -1,1 +1,13 @@
-
+{
+  "title": "Avatars",
+  "images": [
+    { "name": "Luffy",  "url": "https://raw.githubusercontent.com/you/your-repo/main/images/luffy.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
+    { "name": "Nami",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/nami.png" }
+  ]
+}
