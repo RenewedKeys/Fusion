@@ -1,13 +1,12 @@
 {
   "title": "Avatars",
   "images": [
-    { "name": "Luffy",  "url": "https://raw.githubusercontent.com/you/your-repo/main/images/luffy.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Zoro",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/zoro.png" },
-    { "name": "Nami",   "url": "https://raw.githubusercontent.com/you/your-repo/main/images/nami.png" }
+    { "name": "Erick",  "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/ETM.png" },
+    { "name": "LaShundra",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/LDM.jpg" },
+    { "name": "Girls",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/Netflix_6.jpg" },
+    { "name": "Guest",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/Netflix_2.png" },
+    { "name": "Guest",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/Netflix_3.jpg" },
+    { "name": "Guest",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/Netflix_4.jpg" },
+    { "name": "Guest",   "url": "https://raw.githubusercontent.com/RenewedKeys/Fusion/refs/heads/main/avatars/Netflix_5.jpg" }
   ]
 }
