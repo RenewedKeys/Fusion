@@ -248,7 +248,8 @@ end
 
 function Hud:position_avg_line()
     local s = self.settings
-    local x = math.floor(self.ws:pos() + (s.avg_offset_x or 0))
+    -- left edge from the banner centre line (not from the Last WS text)
+    local x = math.floor(s.center_x + (s.avg_offset_x or -200))
     local y = s.center_y + s.avg_gap
     self.avg_label:pos(x, y)
     local lw = extents(self.avg_label)
@@ -308,7 +309,9 @@ function Hud:position_sc_bar()
         y = y + self:block_detail_height()   -- the bar sits under the closer list
     end
     local bar_w = extents(self.sc_bar)
-    local x = self.ws:pos() + (s.sc_bar_offset_x or 0)
+    -- block x is from the banner centre, so it doesn't shift with the
+    -- length of the WS name on the Last WS line
+    local x = s.center_x + (s.sc_bar_offset_x or -200)
 
     local dx, keep = shake_offset(self.sc_bar_shake_start, s.sc_bar_shake_duration or 0.35, s.sc_bar_shake_strength or 5, 60, now)
     self.sc_bar_shake_start = keep
@@ -340,18 +343,13 @@ function Hud:position_detail()
     self.sc_detail:pos(math.floor(x), math.floor(self.block_top or (s.center_y + (s.sc_bar_gap or 132))))
 end
 
+-- MB popup: its own position, from the banner centre (mb_offset_x is from
+-- the centre line, mb_offset_y from center_y). Nothing else moves it.
 function Hud:position_mb()
     local s = self.settings
     local w = extents(self.mb)
-    local x, y
-    if self.sc_bar_active then
-        local bx, by = self.sc_bar:pos()
-        x = math.floor(bx + (extents(self.sc_bar) / 2) - (w / 2) + (s.mb_offset_x or 0))
-        y = math.floor(by + (s.mb_offset_y or -4))
-    else
-        x = math.floor(s.center_x - (w / 2) + (s.mb_offset_x or 0))
-        y = math.floor(s.center_y + (s.sc_bar_gap or ((s.avg_gap or 99) + 34)) + (s.mb_offset_y or -4))
-    end
+    local x = math.floor(s.center_x - (w / 2) + (s.mb_offset_x or 0))
+    local y = math.floor(s.center_y + (s.mb_offset_y or 101))
     local dx, keep = shake_offset(self.mb_shake_start, s.mb_shake_duration or 0.50, s.mb_shake_strength or 5, 80, self.clock())
     self.mb_shake_start = keep
     self.mb:pos(x + dx, y)
@@ -385,7 +383,7 @@ function Hud:update_display()
     self.avg_value:text(b.avg)
     self:apply_trend_style()
 
-    self:position_line(self.ws, s.center_y)
+    self:position_line(self.ws, s.center_y + (s.ws_offset_y or 0), s.ws_offset_x)
     if not self.whiff_shaking then
         self:position_line(self.dmg, s.center_y + s.line_gap, s.dmg_offset_x)
     end
@@ -542,11 +540,12 @@ function Hud:position_sc_line(y)
 end
 
 -- Flair sits over the right part of the damage number.
+-- Hit flair: left edge from the banner centre line. Independent of the
+-- damage line, so dragging one never moves the other.
 function Hud:position_flair(y)
     local s = self.settings
-    local dx = self.dmg:pos()
     self.flair:pos(
-        math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72)) + (s.flair_offset_x or 0)),
+        math.floor(s.center_x + (s.flair_offset_x or 70)),
         math.floor(y + (s.flair_offset_y or -4)))
 end
 
@@ -937,8 +936,8 @@ end
 
 -- Draggable parts, in hit-test priority order (small / on-top first).
 -- Dragging changes the part's two settings by the mouse delta. Every part
--- is placed relative to the banner, so dragging the Last WS line (center_x
--- / center_y) moves the whole HUD.
+-- is placed from the banner centre (center_x / center_y) on its own, so
+-- dragging one never moves another. //cw pos moves the whole HUD.
 -- color: the highlight box and name tag colour shown in move mode.
 M.PARTS = {
     {name = 'mb',         label = 'MB popup',      color = {255, 80, 200},  objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
@@ -948,7 +947,7 @@ M.PARTS = {
     {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_detail', 'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
     {name = 'avg',        label = 'Average line',  color = {200, 200, 0},   objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
     {name = 'dmg',        label = 'Damage line',   color = {230, 60, 60},   objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
-    {name = 'banner',     label = 'WHOLE HUD (drag here to move everything)', color = {120, 120, 120}, objs = {'ws'}, x = 'center_x', y = 'center_y'},
+    {name = 'banner',     label = 'Last WS line',  color = {120, 120, 120}, objs = {'ws'}, x = 'ws_offset_x', y = 'ws_offset_y'},
 }
 
 local TAG_SIZE = 10
@@ -1173,7 +1172,14 @@ local function hit(o, x, y)
     return x >= px and x <= px + w and y >= py and y <= py + h
 end
 
+-- Name tags win: where parts overlap, grabbing a part by its tag always
+-- picks the right one. Otherwise the topmost part body under the mouse.
 function Hud:part_at(x, y)
+    for _, part in ipairs(self:parts()) do
+        if self:part_enabled(part) and hit(self.by_name['tag_' .. part.name], x, y) then
+            return part
+        end
+    end
     for _, part in ipairs(self:parts()) do
         for _, n in ipairs(part.objs) do
             if hit(self.by_name[n], x, y) then return part end
