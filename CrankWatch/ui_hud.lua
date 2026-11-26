@@ -216,6 +216,10 @@ function M.new(opts)
     self:obj('mb', s.mb_size or 18)
     self:obj('flair', s.flair_size)
     self:obj('party', s.party_panel_size or 13)
+    -- move-mode name tags, one per draggable part
+    for _, part in ipairs(M.PARTS) do
+        self:obj('tag_' .. part.name, TAG_SIZE)
+    end
 
     for _, o in ipairs(self.registry) do o:hide() end
     return self
@@ -565,6 +569,8 @@ end
 --         trend, trend_color, streak}
 function Hud:show_ws(entry)
     self.manual_hidden = false
+    self.banner_target = entry.target_id
+    self.fade_out_override = nil
     self.is_whiff = entry.whiff and true or false
     local b = self.banner
     b.label = entry.label
@@ -738,6 +744,31 @@ function Hud:show_chain_info(chain_num, sc_name, show_elements)
     end
 end
 
+-- //cw scdetail: the Step / properties / closer list block.
+function Hud:detail_enabled()
+    return self.settings.sc_detail_enabled ~= false
+end
+
+-- Move mode only shows (and lets you drag) parts that are switched on.
+function Hud:part_enabled(part)
+    local s = self.settings
+    local name = part.name
+    if name == 'mb' then return s.mb_enabled ~= false end
+    if name == 'sc_bonus' then return s.sc_enabled ~= false end
+    if name == 'party' then return s.party_panel == true end
+    if name == 'sc_bar' then return s.sc_bar_enabled ~= false end
+    if name == 'chain_info' then return s.sc_bar_enabled ~= false and s.sc_chain_info_enabled ~= false end
+    if name == 'detail' then return s.sc_bar_enabled ~= false and self:detail_enabled() end
+    return true   -- banner, damage, average and flair are always on
+end
+
+-- Some parts are groups; a member can be off on its own.
+function Hud:obj_enabled(n)
+    if n == 'sc_chain_counter' then return self.settings.sc_chain_counter_enabled ~= false end
+    if n == 'avg_trend' then return self.banner.trend ~= '' end
+    return true
+end
+
 function Hud:hide_sc_group()
     self.sc_bar_active = false
     self.sc_phase, self.sc_target = nil, nil
@@ -848,7 +879,7 @@ function Hud:render_sc(view)
     if self:sc_allowed() then
         for _, o in ipairs({bar, label, status}) do set_alpha(o, a); o:show() end
         if self.chain_counter_visible then set_alpha(self.sc_chain_counter, a); self.sc_chain_counter:show() else self.sc_chain_counter:hide() end
-        if self.detail_value ~= '' then set_alpha(d, a); d:show() else d:hide() end
+        if self:detail_enabled() and self.detail_value ~= '' then set_alpha(d, a); d:show() else d:hide() end
     else
         for _, o in ipairs({bar, label, status, self.sc_chain_counter, d}) do o:hide() end
     end
@@ -1007,7 +1038,7 @@ function Hud:update_frame(now)
         self:update_display()
     end
 
-    if not s.fade_enabled then return end
+    if not s.fade_enabled and not self.fade_out_override then return end
 
     if self.fade_state == 'damage_fade_in' then
         local t = (now - self.fade_start) / math.max(s.fade_in_duration, 0.01)
@@ -1024,7 +1055,7 @@ function Hud:update_frame(now)
             self.fade_start = now
         end
     elseif self.fade_state == 'fade_out' then
-        local t = (now - self.fade_start) / math.max(s.fade_out_duration, 0.01)
+        local t = (now - self.fade_start) / math.max(self.fade_out_override or s.fade_out_duration, 0.01)
         if t >= 1 then
             self.fade_state = 'hidden'
             self:apply_alpha(0)
@@ -1032,6 +1063,27 @@ function Hud:update_frame(now)
             self:apply_alpha(255 * (1 - t))
         end
     end
+end
+
+-- killfade: the mob the banner's WS hit is dead (or gone). Fade the banner
+-- out over `duration` seconds now instead of waiting for the hold timer.
+-- Works with fade off too (the banner would otherwise stay up for good).
+function Hud:kill_fade(duration)
+    self.banner_target = nil
+    if self.moving or not self:banner_visible() or self.fade_state == 'fade_out' and self.fade_out_override then
+        return false
+    end
+    local a = self.alpha_current
+    self.fade_state = 'fade_out'
+    self.fade_out_override = math.max(tonumber(duration) or 1, 0.01)
+    -- start from the current alpha so a fade-in in progress doesn't jump
+    self.fade_start = self.clock() - (1 - a / 255) * self.fade_out_override
+    if self.pop_active then
+        self.pop_active = false
+        self.dmg:size(self.settings.dmg_size)
+    end
+    set_alpha(self.dmg, a)
+    return true
 end
 
 ---------------------------------------------------------------------------
@@ -1042,18 +1094,21 @@ end
 -- Dragging changes the part's two settings by the mouse delta. Every part
 -- is placed relative to the banner, so dragging the Last WS line (center_x
 -- / center_y) moves the whole HUD.
+-- color: the highlight box and name tag colour shown in move mode.
 M.PARTS = {
-    {name = 'mb',         label = 'Magic Burst popup', objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
-    {name = 'sc_bonus',   label = 'SC Bonus',          objs = {'sc'}, x = 'sc_offset_x', y = 'sc_offset_y'},
-    {name = 'flair',      label = 'Hit flair',         objs = {'flair'}, x = 'flair_offset_x', y = 'flair_gap'},
-    {name = 'chain_info', label = 'Chain line',        objs = {'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements'}, x = 'sc_chain_info_offset_x', y = 'sc_chain_info_gap'},
-    {name = 'detail',     label = 'Closer list',       objs = {'sc_detail'}, x = 'sc_detail_offset_x', y = 'sc_detail_gap'},
-    {name = 'party',      label = 'Party panel',       objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
-    {name = 'sc_bar',     label = 'SC bar',            objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
-    {name = 'avg',        label = 'Average line',      objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
-    {name = 'dmg',        label = 'Damage line',       objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
-    {name = 'banner',     label = 'Whole HUD',         objs = {'ws'}, x = 'center_x', y = 'center_y'},
+    {name = 'mb',         label = 'MB popup',      color = {255, 80, 200},  objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
+    {name = 'sc_bonus',   label = 'SC Bonus',      color = {0, 200, 200},   objs = {'sc'}, x = 'sc_offset_x', y = 'sc_offset_y'},
+    {name = 'flair',      label = 'Hit flair',     color = {255, 140, 0},   objs = {'flair'}, x = 'flair_offset_x', y = 'flair_gap'},
+    {name = 'chain_info', label = 'Chain line',    color = {160, 90, 255},  objs = {'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements'}, x = 'sc_chain_info_offset_x', y = 'sc_chain_info_gap'},
+    {name = 'detail',     label = 'Closer list',   color = {60, 120, 255},  objs = {'sc_detail'}, x = 'sc_detail_offset_x', y = 'sc_detail_gap'},
+    {name = 'party',      label = 'Party panel',   color = {0, 170, 90},    objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
+    {name = 'sc_bar',     label = 'SC bar',        color = {40, 200, 40},   objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
+    {name = 'avg',        label = 'Average line',  color = {200, 200, 0},   objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
+    {name = 'dmg',        label = 'Damage line',   color = {230, 60, 60},   objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
+    {name = 'banner',     label = 'WHOLE HUD (drag here to move everything)', color = {120, 120, 120}, objs = {'ws'}, x = 'center_x', y = 'center_y'},
 }
+
+local TAG_SIZE = 10
 
 local SAMPLE_PARTY = tconcat({
     ('%-12s %4s %8s %8s'):format('Party WS', '#', 'Avg', 'Peak'),
@@ -1084,7 +1139,8 @@ end
 
 function Hud:party_visible()
     if self.manual_hidden then return false end
-    if self.moving or self:party_testing() then return true end
+    if self:party_testing() then return true end
+    if self.moving then return self.settings.party_panel == true end
     if not self:party_enabled() then return false end
     if self.settings.party_panel_fade then return self:banner_visible() end
     return true
@@ -1111,6 +1167,59 @@ end
 function Hud:update(now)
     self:update_frame(now)
     self:update_party()
+end
+
+-- Move mode highlight: a tinted box behind every object of a part (brighter
+-- under the mouse) and a name tag just above the part's first object.
+local function set_bg(o, on, color, alpha)
+    if on then
+        o:bg_color(color[1], color[2], color[3])
+        o:bg_alpha(alpha)
+        o:bg_visible(true)
+    else
+        o:bg_visible(false)
+        o:bg_alpha(0)
+    end
+end
+
+function Hud:highlight_parts(on)
+    local s = self.settings
+    for _, part in ipairs(M.PARTS) do
+        local hovered = self.hover == part.name or (self.drag and self.drag.part.name == part.name)
+        for _, n in ipairs(part.objs) do
+            set_bg(self.by_name[n], on, part.color, hovered and 170 or 80)
+        end
+        local tag = self.by_name['tag_' .. part.name]
+        if on and self:part_enabled(part) then
+            local first = self.by_name[part.objs[1]]
+            local x, y = first:pos()
+            tag:text(' ' .. part.label .. ' ')
+            tag:font('Consolas')
+            tag:size(TAG_SIZE)
+            tag:color(255, 255, 255)
+            tag:stroke_width(1)
+            set_bg(tag, true, part.color, 230)
+            local _, th = tag:extents()
+            tag:pos(math.floor(x), math.max(0, math.floor(y - (tonumber(th) or 14) - 1)))
+            set_alpha(tag, 255)
+            tag:show()
+        else
+            set_bg(tag, false)
+            tag:hide()
+        end
+    end
+end
+
+-- Names of the parts currently draggable, top of the HUD first.
+function Hud:legend()
+    local names = {}
+    for i = #M.PARTS, 1, -1 do
+        local part = M.PARTS[i]
+        if self:part_enabled(part) then
+            names[#names + 1] = (part.label:gsub(' %(.*%)', ''))
+        end
+    end
+    return tconcat(names, ', ')
 end
 
 function Hud:move_view()
@@ -1164,19 +1273,24 @@ function Hud:render_move()
     for _, part in ipairs(M.PARTS) do
         for _, n in ipairs(part.objs) do
             local o = self.by_name[n]
-            if not (n == 'avg_trend' and self.banner.trend == '') then
+            if not self:part_enabled(part) or not self:obj_enabled(n) then
+                o:hide()
+            else
                 set_alpha(o, 255)
                 o:show()
             end
         end
     end
     self.avg:hide()
+    self:highlight_parts(true)
 end
 
 function Hud:stop_move()
     if not self.moving then return end
     self.moving = false
     self.drag = nil
+    self.hover = nil
+    self:highlight_parts(false)
     local saved = self.saved_banner or {}
     local b = self.banner
     for _, k in ipairs({'label', 'dmg', 'avg', 'avg_raw', 'trend', 'trend_color', 'raw', 'cranked'}) do
@@ -1234,6 +1348,10 @@ function Hud:mouse(type, x, y)
         s[part.x], s[part.y] = sx, sy
         self.drag = {part = part, mx = x, my = y, sx = sx, sy = sy}
         return true
+    elseif type == 0 and not self.drag then
+        local part = self:part_at(x, y)
+        self.hover = part and part.name or nil
+        return false
     elseif type == 0 and self.drag then
         local d = self.drag
         s[d.part.x] = math.floor(d.sx + (x - d.mx))
@@ -1288,6 +1406,10 @@ function Hud:apply_all_visual_settings()
     self.sc_bar:font(s.sc_bar_font or 'Consolas')
     self.sc_detail:font(s.sc_detail_font or 'Consolas')
     self.party:font(s.party_panel_font or 'Consolas')
+    for _, part in ipairs(M.PARTS) do
+        local tag = self.by_name['tag_' .. part.name]
+        tag:font('Consolas'); tag:size(TAG_SIZE)
+    end
 
     local sizes = {
         ws = s.ws_size, dmg = s.dmg_size, avg = s.avg_size, avg_label = s.avg_size,

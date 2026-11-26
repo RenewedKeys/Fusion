@@ -513,7 +513,12 @@ function Engine:view(targ, now)
 
     local phase
     if not reson.closed then
-        reson.disp_info = reson.disp_info or self:compute_closers(reson)
+        -- //cw scdetail off: skip the closer list entirely.
+        if self.settings.sc_detail_enabled == false then
+            reson.disp_info = ''
+        else
+            reson.disp_info = reson.disp_info or self:compute_closers(reson)
+        end
         phase = now < reson.delay and 'wait' or 'go'
     elseif self:show('burst') then
         reson.disp_info = ''

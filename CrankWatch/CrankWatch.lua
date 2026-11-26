@@ -107,6 +107,7 @@ local defaults = {
     sc_hud_independent = true,  -- SC HUD shows whenever your target has a resonance
     sc_color = true,            -- Ivaar's coloured property / closer text
     sc_aeonic = false,          -- assume other players have their Aeonic equipped
+    sc_detail_enabled = true,   -- //cw scdetail: Step / properties / closer list block
     sc_detail_size = 13,
     sc_detail_font = 'Consolas',
     sc_detail_gap = 30,
@@ -126,6 +127,8 @@ local defaults = {
     track_pets = true,
     track_trusts = false,
     track_alliance = true,
+    banner_hide_on_kill = false, -- //cw killfade: fade the banner when its WS's target dies
+    kill_fade_duration = 1.0,   -- seconds for that fade
     party_panel = false,
     party_panel_fade = false,   -- true: party panel fades with the WS banner
     party_panel_size = 13,
@@ -253,7 +256,7 @@ local function refresh_party_panel()
 end
 
 -- Records a WS and, when the banner mode allows, shows it on the banner.
-local function record_and_show(info, ws_name, damage, whiff)
+local function record_and_show(info, ws_name, damage, whiff, target_id)
     local s = tracker:record_ws(info, ws_name, damage, whiff)
     if not s then
         if debug_mode then chat('Blacklisted WS skipped for stats: ' .. tostring(ws_name)) end
@@ -275,6 +278,7 @@ local function record_and_show(info, ws_name, damage, whiff)
             trend = s.trend,
             trend_color = s.trend_color,
             streak = s.streak,
+            target_id = target_id,
         })
     end
     refresh_party_panel()
@@ -329,7 +333,7 @@ local function handle_ws(rec)
         return
     end
 
-    record_and_show(info, ws_name, damage, whiff)
+    record_and_show(info, ws_name, damage, whiff, main_target.id)
 end
 
 local function handle_sc_events(events, target_id)
@@ -447,6 +451,22 @@ windower.register_event('job change', function(job_id)
     end
 end)
 
+-- Mob status 2 / 3 = dead / dying.
+local function target_dead(id)
+    local mob = windower.ffxi.get_mob_by_id(id)
+    if not mob then return true end
+    return (tonumber(mob.hpp) or 0) <= 0 or mob.status == 2 or mob.status == 3
+end
+
+local function check_kill_fade()
+    local id = hud.banner_target
+    if not id or not settings.banner_hide_on_kill then return end
+    if target_dead(id) then
+        hud:kill_fade(settings.kill_fade_duration)
+        if debug_mode then chat('Banner target died: fading out.') end
+    end
+end
+
 -- //cw move: drag HUD parts. Returning true keeps the click from the game.
 windower.register_event('mouse', function(type, x, y, delta, blocked)
     if blocked or not hud.moving then return end
@@ -469,6 +489,7 @@ windower.register_event('prerender', function()
         local view = engine:view(current_target(), now) or hud:test_view(now)
         hud:render_sc(view)
     end
+    check_kill_fade()
     hud:update(now)
 end)
 
@@ -560,11 +581,38 @@ local function copy_default(v)
     return v
 end
 
+-- Everything that decides where a part sits (not its size, font or behaviour).
+local POSITION_KEYS = {
+    'center_x', 'center_y',
+    'line_gap', 'avg_gap', 'flair_gap', 'dmg_offset_x', 'avg_offset_x',
+    'flair_offset_x', 'flair_offset_y', 'flair_anchor_ratio',
+    'sc_gap', 'sc_offset_x', 'sc_offset_y',
+    'sc_bar_gap', 'sc_bar_offset_x', 'sc_bar_label_overlap', 'sc_chain_counter_gap',
+    'sc_chain_info_gap', 'sc_chain_info_offset_x', 'sc_chain_info_offset_y',
+    'sc_detail_gap', 'sc_detail_offset_x',
+    'mb_offset_x', 'mb_offset_y',
+    'party_panel_offset_x', 'party_panel_offset_y',
+}
+
+local function reset_positions()
+    for _, k in ipairs(POSITION_KEYS) do
+        settings[k] = defaults[k]
+    end
+    -- //cw size derives the banner's line gaps from the WS size; keep them
+    -- matched to a non-default size so lines don't overlap.
+    local size = tonumber(settings.ws_size)
+    if size and size ~= defaults.ws_size then
+        settings.line_gap = math.floor(size * 1.22)
+        settings.avg_gap = math.floor(size * 2.40)
+        settings.flair_gap = math.floor(size * 3.25)
+    end
+end
+
 local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | testmassive | testsc <skillchain> | testbar | testmb [dmg] | testcrankedstreak'
-    .. ' | show | hide | layout | pos x y | size 36 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
-    .. ' | fade on|off | fadetime 60 8 | fadein 0.3 | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
+    .. ' | show | hide | layout | resetpos | pos x y | size 36 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
+    .. ' | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
     .. ' | scsize 34 | scfade 4 | scfloat 28 | scoffset 32 | scbar on|off | scbargap 132 | scbarwidth 18 | scbarsize 18 | scbardelay 3 | scbarlabelsize 15 | scbarlabeloverlap 20'
-    .. ' | scchaincountersize 18 | scchaincountergap 6 | scinfogap 175 | scdetailsize 13 | scdetailgap 30 | schud on|off | scburst 0'
+    .. ' | scchaincountersize 18 | scchaincountergap 6 | scinfogap 175 | scdetail on|off | scdetailsize 13 | scdetailgap 30 | schud on|off | scburst 0'
     .. ' | sc burst|pet|props|spell|step|timer|weapon|color | scaeonic on|off'
     .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
     .. ' | bannermode self|party | party on|off | party fade on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
@@ -639,6 +687,11 @@ windower.register_event('addon command', function(cmd, ...)
         number_setting(arg1, 'sc_chain_counter_gap', 'SC chain counter offset', relayout)
     elseif cmd == 'scinfogap' then
         number_setting(arg1, 'sc_chain_info_gap', 'SC info gap', relayout)
+    elseif cmd == 'scdetail' then
+        on_off(arg1, 'sc_detail_enabled', 'Skillchain detail (Step / properties / closer list)', function()
+            engine:invalidate()
+            if not settings.sc_detail_enabled then hud.sc_detail:hide() end
+        end)
     elseif cmd == 'scdetailsize' then
         number_setting(arg1, 'sc_detail_size', 'SC detail size', revisual)
     elseif cmd == 'scdetailgap' then
@@ -916,6 +969,22 @@ windower.register_event('addon command', function(cmd, ...)
     elseif cmd == 'autoreset' then
         on_off(arg1, 'auto_reset', 'Auto average reset')
 
+    elseif cmd == 'killfade' then
+        local v = tonumber(arg1)
+        if v then
+            settings.kill_fade_duration = math.max(0, v)
+            save_settings()
+            chat('Kill fade time saved: ' .. tostring(settings.kill_fade_duration) .. 's')
+        else
+            on_off(arg1, 'banner_hide_on_kill', 'Fade the banner when its target dies')
+        end
+
+    elseif cmd == 'resetpos' then
+        reset_positions()
+        relayout()
+        save_settings()
+        chat('Positions reset to default and saved. Sizes, fonts and other settings unchanged.')
+
     elseif cmd == 'mbparty' then
         on_off(arg1, 'mb_party', "Show party members' Magic Bursts")
 
@@ -937,7 +1006,9 @@ windower.register_event('addon command', function(cmd, ...)
             chat('Move mode off. Positions saved.')
         else
             hud:start_move()
-            chat('Move mode: drag any part with the left mouse button. Drag the "Last WS" line to move everything. //cw move again when done.')
+            chat('Move mode: every part has a coloured box and a name tag. Drag a part with the left mouse button; it saves when you let go.')
+            chat('Drag the grey WHOLE HUD tag line (Last WS) to move everything. Parts: ' .. hud:legend() .. '. Parts you have switched off are not shown.')
+            chat('//cw move again when done. //cw resetpos puts everything back.')
         end
 
     elseif cmd == 'hide' then
