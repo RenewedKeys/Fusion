@@ -242,15 +242,29 @@ function Hud:request_layout_refresh(duration)
     self.layout_refresh_until = self.clock() + (duration or 0.35)
 end
 
-function Hud:position_line(o, y, dx)
-    o:pos(math.floor(self.settings.center_x - (extents(o) / 2) + (dx or 0)), y)
+-- The banner (Last WS line, damage, average, hit flair, SC Bonus) is one
+-- block. Its origin is the HUD centre plus its own offset, so dragging it
+-- in //cw move never moves the skillchain block, party panel or MB popup.
+function Hud:banner_x()
+    local s = self.settings
+    return s.center_x + (s.banner_offset_x or 0)
+end
+
+function Hud:banner_y()
+    local s = self.settings
+    return s.center_y + (s.banner_offset_y or 0)
+end
+
+-- Centre a banner line on the banner origin.
+function Hud:position_line(o, y)
+    o:pos(math.floor(self:banner_x() - (extents(o) / 2)), y)
 end
 
 function Hud:position_avg_line()
     local s = self.settings
-    -- left edge from the banner centre line (not from the Last WS text)
-    local x = math.floor(s.center_x + (s.avg_offset_x or -200))
-    local y = s.center_y + s.avg_gap
+    -- left-aligned with the Last WS line, as in 2.0
+    local x = self.ws:pos()
+    local y = self:banner_y() + s.avg_gap
     self.avg_label:pos(x, y)
     local lw = extents(self.avg_label)
     self.avg_value:pos(math.floor(x + lw), y)
@@ -383,16 +397,16 @@ function Hud:update_display()
     self.avg_value:text(b.avg)
     self:apply_trend_style()
 
-    self:position_line(self.ws, s.center_y + (s.ws_offset_y or 0), s.ws_offset_x)
+    self:position_line(self.ws, self:banner_y())
     if not self.whiff_shaking then
-        self:position_line(self.dmg, s.center_y + s.line_gap, s.dmg_offset_x)
+        self:position_line(self.dmg, self:banner_y() + s.line_gap)
     end
     self:position_avg_line()
     if self.sc_bar_active then self:position_sc_bar() end
     if self.sc_bar_active then self:position_detail() end
     if self.mb_visible then self:position_mb() end
     if self.flair_visible and not self.flair_fading then
-        self:position_flair(s.center_y + s.flair_gap)
+        self:position_flair(self:banner_y() + s.flair_gap)
     end
     self:position_party()
 end
@@ -444,7 +458,7 @@ function Hud:apply_damage_style()
         self.flair_fade_start = self.clock()
         self.flair_base_size = s.flair_size
         self.flair_fade_start_alpha = self.alpha_current
-        self.flair_start_y = s.center_y + s.flair_gap
+        self.flair_start_y = self:banner_y() + s.flair_gap
     else
         f:hide()
         self.flair_visible, self.flair_fading = false, false
@@ -536,16 +550,15 @@ end
 
 function Hud:position_sc_line(y)
     local s = self.settings
-    self.sc:pos(math.floor(s.center_x - (extents(self.sc) / 2) + (s.sc_offset_x or 0)), y)
+    self.sc:pos(math.floor(self:banner_x() - (extents(self.sc) / 2)), y)
 end
 
--- Flair sits over the right part of the damage number.
--- Hit flair: left edge from the banner centre line. Independent of the
--- damage line, so dragging one never moves the other.
+-- Hit flair sits over the right part of the damage number (2.0 layout).
 function Hud:position_flair(y)
     local s = self.settings
+    local dx = self.dmg:pos()
     self.flair:pos(
-        math.floor(s.center_x + (s.flair_offset_x or 70)),
+        math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72))),
         math.floor(y + (s.flair_offset_y or -4)))
 end
 
@@ -562,7 +575,7 @@ function Hud:sc_bonus(dmg)
     o:color(120, 255, 255)
     o:stroke_width(s.stroke_width)
     set_alpha(o, 255)
-    self.sc_start_y = s.center_y + (s.sc_gap or s.flair_gap or 118)
+    self.sc_start_y = self:banner_y() + (s.sc_gap or s.flair_gap or 118)
     self:position_sc_line(math.floor(self.sc_start_y + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
     self.sc_visible, self.sc_fading = true, true
     self.sc_fade_start = self.clock()
@@ -637,7 +650,6 @@ function Hud:part_enabled(part)
     local s = self.settings
     local name = part.name
     if name == 'mb' then return s.mb_enabled ~= false end
-    if name == 'sc_bonus' then return s.sc_enabled ~= false end
     if name == 'party' then return s.party_panel == true end
     if name == 'sc_bar' then return s.sc_bar_enabled ~= false end
     return true   -- banner, damage, average and flair are always on
@@ -645,6 +657,7 @@ end
 
 -- Some parts are groups; a member can be off on its own.
 function Hud:obj_enabled(n)
+    if n == 'sc' then return self.settings.sc_enabled ~= false end
     if n == 'sc_detail' then return self:detail_enabled() end
     if n == 'sc_chain_counter' then return self.settings.sc_chain_counter_enabled ~= false end
     if n == 'avg_trend' then return self.banner.trend ~= '' end
@@ -865,7 +878,7 @@ function Hud:update_frame(now)
             self:update_display()
         else
             local offset = math.floor(math.sin(t * 70) * s.whiff_shake_strength * (1 - t))
-            self.dmg:pos(math.floor(s.center_x - (extents(self.dmg) / 2) + (s.dmg_offset_x or 0)) + offset, s.center_y + s.line_gap)
+            self.dmg:pos(math.floor(self:banner_x() - (extents(self.dmg) / 2)) + offset, self:banner_y() + s.line_gap)
         end
     end
 
@@ -936,18 +949,14 @@ end
 
 -- Draggable parts, in hit-test priority order (small / on-top first).
 -- Dragging changes the part's two settings by the mouse delta. Every part
--- is placed from the banner centre (center_x / center_y) on its own, so
+-- is placed from the HUD centre (center_x / center_y) on its own, so
 -- dragging one never moves another. //cw pos moves the whole HUD.
 -- color: the highlight box and name tag colour shown in move mode.
 M.PARTS = {
     {name = 'mb',         label = 'MB popup',      color = {255, 80, 200},  objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
-    {name = 'sc_bonus',   label = 'SC Bonus',      color = {0, 200, 200},   objs = {'sc'}, x = 'sc_offset_x', y = 'sc_offset_y'},
-    {name = 'flair',      label = 'Hit flair',     color = {255, 140, 0},   objs = {'flair'}, x = 'flair_offset_x', y = 'flair_gap'},
     {name = 'party',      label = 'Party panel',   color = {0, 170, 90},    objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
     {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_detail', 'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
-    {name = 'avg',        label = 'Average line',  color = {200, 200, 0},   objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
-    {name = 'dmg',        label = 'Damage line',   color = {230, 60, 60},   objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
-    {name = 'banner',     label = 'Last WS line',  color = {120, 120, 120}, objs = {'ws'}, x = 'ws_offset_x', y = 'ws_offset_y'},
+    {name = 'banner',     label = 'Banner',        color = {230, 60, 60},   objs = {'ws', 'dmg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}, x = 'banner_offset_x', y = 'banner_offset_y'},
 }
 
 local TAG_SIZE = 10
@@ -1121,8 +1130,8 @@ function Hud:render_move()
     self:render_sc(self:move_view())
     self.sc_bar_shake_start, self.mb_shake_start = 0, 0
     self:update_display()
-    self:position_flair(s.center_y + s.flair_gap)
-    self:position_sc_line(math.floor(s.center_y + (s.sc_gap or s.flair_gap or 118) + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+    self:position_flair(self:banner_y() + s.flair_gap)
+    self:position_sc_line(math.floor(self:banner_y() + (s.sc_gap or s.flair_gap or 118) + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
     self:position_mb()
     self:position_party()
     for _, part in ipairs(self:parts()) do

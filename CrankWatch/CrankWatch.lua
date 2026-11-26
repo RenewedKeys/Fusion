@@ -104,12 +104,8 @@ local defaults = {
     sc_detail_size = 13,
     sc_detail_font = 'Consolas',
     -- Horizontal offsets set by //cw move (vertical ones reuse the 2.0 gaps).
-    ws_offset_x = 0,            -- Last WS line, from the banner centre
-    ws_offset_y = 0,
-    dmg_offset_x = 0,
-    avg_offset_x = -200,        -- average line's left edge, from the banner centre line
-    flair_offset_x = 70,        -- hit flair's left edge, from the banner centre line
-    sc_offset_x = 0,
+    banner_offset_x = 0,        -- banner block (WS line, damage, average, flair, SC Bonus), from the HUD centre
+    banner_offset_y = 0,
     sc_bar_offset_x = -200,     -- skillchain block's left edge, from the banner centre line
     mb_party = true,            -- also pop MBs cast by party members (with their name)
     mb_max_lines = 4,           -- simultaneous MBs stack up to this many lines
@@ -576,10 +572,10 @@ end
 -- Everything that decides where a part sits (not its size, font or behaviour).
 local POSITION_KEYS = {
     'center_x', 'center_y',
-    'ws_offset_x', 'ws_offset_y',
-    'line_gap', 'avg_gap', 'flair_gap', 'dmg_offset_x', 'avg_offset_x',
-    'flair_offset_x', 'flair_offset_y', 'flair_anchor_ratio',
-    'sc_gap', 'sc_offset_x', 'sc_offset_y',
+    'banner_offset_x', 'banner_offset_y',
+    'line_gap', 'avg_gap', 'flair_gap',
+    'flair_offset_y', 'flair_anchor_ratio',
+    'sc_gap', 'sc_offset_y',
     'sc_bar_gap', 'sc_bar_offset_x', 'sc_bar_label_overlap', 'sc_chain_counter_gap',
     'mb_offset_x', 'mb_offset_y',
     'party_panel_offset_x', 'party_panel_offset_y',
@@ -978,7 +974,7 @@ windower.register_event('addon command', function(cmd, ...)
         else
             hud:start_move()
             chat('Move mode: every part has a coloured box and a name tag. Drag a part with the left mouse button; it saves when you let go.')
-            chat('Each part moves on its own. To move the whole HUD at once use //cw pos x y. Parts: ' .. hud:legend() .. '. Parts you have switched off are not shown.')
+            chat('Each part moves on its own; the Banner moves the WS line, damage, average, flair and SC Bonus together. //cw pos x y moves the whole HUD. Parts: ' .. hud:legend() .. '. Parts you have switched off are not shown.')
             chat('//cw move again when done. //cw resetpos puts everything back.')
         end
 

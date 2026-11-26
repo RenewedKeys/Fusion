@@ -182,10 +182,21 @@ under your mouse brightens, and chat prints the list of parts. Only parts
 you have switched on appear: for example, with the party panel off or
 `//cw scdetail off`, those parts aren't shown and can't be dragged.
 
-Drag with the **left mouse button**. **Every part moves on its own**:
-dragging one never moves another. The parts are the Last WS line, damage
-line, average line, hit flair, SC Bonus, Skillchain block (closer list, bar
-and timer together), party panel and MB popup.
+Drag with the **left mouse button**. There are four parts, and **each moves
+on its own**: dragging one never moves another.
+
+| Part | Contains |
+|---|---|
+| **Banner** | Last WS line, damage, average, hit flair, SC Bonus |
+| **Skillchain** | closer list, countdown bar, timer |
+| **Party panel** | WS and Magic Burst tallies |
+| **MB popup** | burst popups |
+
+Inside the Banner, the pieces keep CrankWatch 2.0's alignment: the WS line
+and damage line are centred, the `Avg:` line is left-aligned with the WS
+line, the hit flair sits over the right side of the damage number, and
+SC Bonus is centred below. Adjust the spacing inside it with `//cw gap`,
+`//cw avggap`, `//cw flairgap` and `//cw scoffset`.
 
 - **Grab a part by its name tag** when parts overlap: the tag always picks
   the right one. You can also grab the part itself.
@@ -196,10 +207,9 @@ Each part saves the moment you let go. Type `//cw move` again to finish.
 
 **Why it looks crowded at first.** In move mode everything shows at once.
 In play, several parts share space because they appear at different
-moments: by default the MB popup sits on the countdown bar, and the hit flair and
-SC Bonus float briefly over the average line. If you'd rather nothing
-overlaps, drag the MB popup, SC Bonus and hit flair (by their tags) clear of
-the rest.
+moments: by default the MB popup sits near the countdown bar, and the hit
+flair and SC Bonus float briefly over the average line. If parts overlap,
+grab the one you want by its name tag.
 Clicks on empty screen still reach the game. WSs that land while you're
 dragging are still recorded, but don't replace the sample.
 
@@ -388,7 +398,7 @@ pixels.
 | Key | Default | Meaning |
 |---|---|---|
 | `center_x`, `center_y` | 1475, 850 | Banner centre (`//cw pos`). Every part is placed from here, independently |
-| `ws_offset_x`, `ws_offset_y` | 0, 0 | Last WS line, from the banner centre (set by `//cw move`) |
+| `banner_offset_x`, `banner_offset_y` | 0, 0 | The Banner block's position from the HUD centre (set by dragging the Banner in `//cw move`) |
 | `ws_size` | 36 | `Last WS` line size |
 | `dmg_size` | 42 | Damage line size |
 | `avg_size` | 24 | Average line size |
@@ -396,8 +406,6 @@ pixels.
 | `line_gap` | 45 | Damage line below the WS line |
 | `avg_gap` | 99 | Average line below the WS line |
 | `flair_gap` | 100 | Flair below the WS line |
-| `dmg_offset_x` | 0 | Damage line, from the banner centre line (set by `//cw move`) |
-| `avg_offset_x` | −200 | Average line's left edge, from the banner centre line (set by `//cw move`) |
 | `font` | Highwind | Banner font |
 | `stroke_width` | 4 | Outline width |
 | `big_stroke_width` | 5 | Outline width for 50,000+ hits |
@@ -411,7 +419,8 @@ pixels.
 | `flair_fade_duration` | 1.5 | Flair float-away seconds |
 | `flair_shrink_size` | 6 | Flair shrink while fading |
 | `flair_float_distance` | 32 | Flair float distance |
-| `flair_offset_x`, `flair_offset_y` | 70, −6 | Hit flair's left edge from the banner centre line (`x` set by `//cw move`), and a vertical nudge (file only) |
+| `flair_anchor_ratio` | 0.72 | **File only.** Where the flair sits along the damage number (0 = left edge, 1 = right edge) |
+| `flair_offset_y` | −6 | **File only.** Flair vertical nudge |
 | `whiff_shake_duration`, `whiff_shake_strength` | 0.45, 6 | WHIFF shake |
 
 ### SC Bonus float
@@ -421,7 +430,7 @@ pixels.
 | `sc_enabled` | true | **File only.** Show the SC Bonus float |
 | `sc_size` | 34 | Text size |
 | `sc_gap` | 68 | **File only.** Base distance below the WS line |
-| `sc_offset_x`, `sc_offset_y` | 0, 32 | Nudge (set by `//cw move` / `//cw scoffset`) |
+| `sc_offset_y` | 32 | Vertical nudge (`//cw scoffset`) |
 | `sc_fade_duration` | 4 | Float-away seconds |
 | `sc_float_distance` | 28 | Float distance |
 
@@ -482,8 +491,8 @@ pixels.
 
 ### No longer used
 
-`pending_timeout`, `flair_duration`, `sc_window`, `sc_bar_max_step`,
-`sc_anchor_ratio` and `flair_anchor_ratio` remain in the file so 2.0 settings load cleanly, but
+`pending_timeout`, `flair_duration`, `sc_window`, `sc_bar_max_step` and
+`sc_anchor_ratio` remain in the file so 2.0 settings load cleanly, but
 nothing reads them. Chains now close after step 5 or at Lv.4, as in
 SkillChains.
 
@@ -554,9 +563,10 @@ lists every part when you enter move mode. See section 4 for why parts
 overlap by default.
 
 **Dragging one part moved another.**
-That was fixed: every part now moves on its own. If parts overlap, grab
-the one you want by its name tag. After updating, run `//cw resetpos` once,
-because the MB popup and Skillchain block are now placed differently.
+That was fixed: the Banner, Skillchain block, party panel and MB popup each
+move on their own. If parts overlap, grab the one you want by its name tag.
+After updating, run `//cw resetpos` once, because parts are now placed
+differently.
 
 **The party panel or skillchain block is off screen, or my layout is a mess.**
 `//cw resetpos` puts everything back in its default place without touching
