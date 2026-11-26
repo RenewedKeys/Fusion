@@ -1,0 +1,1096 @@
+-- ui_hud.lua: every CrankWatch text object, layout and animation.
+--
+-- All text objects are created through hud:obj() and stored in one ordered
+-- registry, so hide / apply_alpha / apply_all_visual_settings / destroy can
+-- never miss one (the old file leaked 7 of 16 on unload).
+--
+-- Groups:
+--   banner : Last WS line, damage, Avg label/value/trend, flair, SC Bonus,
+--            party panel. Fades in/holds/fades out as before.
+--   sc     : bar, "SC Window:" label + status, Chain counter, chain info
+--            (prefix / coloured name / elements) and the SC detail block
+--            (Step, properties, closer list). Independent of the banner
+--            when settings.sc_hud_independent is on.
+--   mb     : Magic Burst popup (own fade/shake timer).
+
+require('luau')
+
+local M = {}
+
+-- luau replaces table.concat with a pairs-order version; keep the raw one.
+local tconcat = (_raw and _raw.table and _raw.table.concat) or table.concat
+
+local Hud = {}
+Hud.__index = Hud
+
+local function clamp(v, lo, hi)
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
+end
+M.clamp = clamp
+
+function M.format_number(num)
+    local s = tostring(num or '')
+    s = s:gsub(',', '')
+    return (s:reverse():gsub('(%d%d%d)', '%1,'):reverse():gsub('^,', ''))
+end
+
+---------------------------------------------------------------------------
+-- Skillchain colours / element strings (unchanged from CrankWatch 2.0)
+---------------------------------------------------------------------------
+
+local SC_ELEMENT_COLORS = {
+    Fire     = {255,  70,  70},
+    Ice      = {120, 220, 255},
+    Water    = { 45,  95, 255},
+    Darkness = {180, 100, 255},
+    Light    = {245, 245, 220},
+    Thunder  = {205, 145, 255},
+    Wind     = {100, 255, 100},
+    Earth    = {230, 210,  80},
+}
+
+local SC_ELEMENTS = {
+    Liquefaction  = 'Fire',
+    Induration    = 'Ice',
+    Reverberation = 'Water',
+    Detonation    = 'Wind',
+    Scission      = 'Earth',
+    Impaction     = 'Thunder',
+    Transfixion   = 'Light',
+    Compression   = 'Dark.',
+    Fusion        = 'Fire/Light',
+    Fragmentation = 'Wind/Thund.',
+    Distortion    = 'Ice/Water',
+    Gravitation   = 'Earth/Dark.',
+    Light         = 'Fire/Wind/Thund./Light',
+    Darkness      = 'Earth/Water/Ice/Dark.',
+    Radiance      = 'Fire/Wind/Thund./Light',
+    Umbra         = 'Earth/Water/Ice/Dark.',
+}
+M.SC_ELEMENTS = SC_ELEMENTS
+
+M.SC_NAMES = {
+    liquefaction='Liquefaction', induration='Induration', reverberation='Reverberation',
+    detonation='Detonation', scission='Scission', impaction='Impaction',
+    transfixion='Transfixion', compression='Compression', fusion='Fusion',
+    fragmentation='Fragmentation', distortion='Distortion', gravitation='Gravitation',
+    light='Light', darkness='Darkness', radiance='Radiance', umbra='Umbra',
+}
+
+local function blend(...)
+    local r, g, b, n = 0, 0, 0, 0
+    for _, name in ipairs({...}) do
+        local c = SC_ELEMENT_COLORS[name]
+        if c then r, g, b, n = r + c[1], g + c[2], b + c[3], n + 1 end
+    end
+    if n == 0 then return 255, 255, 255 end
+    return math.floor(r / n), math.floor(g / n), math.floor(b / n)
+end
+
+function M.sc_color(name)
+    local key = tostring(name or ''):lower():gsub('%s+', '')
+    local C = SC_ELEMENT_COLORS
+    if key:find('radiance') then return unpack(C.Light) end
+    if key:find('umbra') then return unpack(C.Darkness) end
+    if key:find('darkness') then return unpack(C.Darkness) end
+    if key:find('light') then return unpack(C.Light) end
+    if key:find('fusion') then return blend('Fire', 'Light') end
+    if key:find('fragmentation') then return blend('Wind', 'Thunder') end
+    if key:find('distortion') then return blend('Ice', 'Water') end
+    if key:find('gravitation') then return blend('Earth', 'Darkness') end
+    if key:find('liquefaction') then return unpack(C.Fire) end
+    if key:find('scission') then return unpack(C.Earth) end
+    if key:find('reverberation') then return unpack(C.Water) end
+    if key:find('detonation') then return unpack(C.Wind) end
+    if key:find('induration') then return unpack(C.Ice) end
+    if key:find('impaction') then return unpack(C.Thunder) end
+    if key:find('transfixion') then return unpack(C.Light) end
+    if key:find('compression') then return unpack(C.Darkness) end
+    return 255, 255, 255
+end
+
+function M.damage_style(dmg, whiff, settings, cranked_text)
+    if whiff then
+        return 180, 180, 180, settings.stroke_width, 'LOL'
+    end
+    dmg = tonumber(dmg) or 0
+    if dmg == 99999 then
+        return 180, 100, 255, settings.big_stroke_width, cranked_text or 'CRANKED!!!'
+    elseif dmg >= 80000 then
+        return 255, 70, 70, settings.big_stroke_width, 'MASSIVE HIT!!'
+    elseif dmg >= 50000 then
+        return 255, 215, 0, settings.big_stroke_width, 'BIG HIT!'
+    elseif dmg >= 10000 then
+        return 100, 170, 255, settings.stroke_width, nil
+    end
+    return 255, 255, 255, settings.stroke_width, nil
+end
+
+function M.cranked_text(streak)
+    if (streak or 0) <= 1 then return 'CRANKED!!!' end
+    return 'CRANKED x ' .. tostring(streak)
+end
+
+function M.make_bar(width, percent)
+    width = math.max(6, math.floor(width or 34))
+    percent = clamp(percent or 0, 0, 1)
+    local filled = math.floor((width * percent) + 0.5)
+    return string.rep('█', filled) .. string.rep('░', width - filled)
+end
+
+---------------------------------------------------------------------------
+-- Construction / registry
+---------------------------------------------------------------------------
+
+M.BANNER = {'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc', 'party'}
+M.SC = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter',
+        'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements', 'sc_detail'}
+
+-- opts: settings, texts (library), clock
+function M.new(opts)
+    local self = setmetatable({}, Hud)
+    self.settings = opts.settings
+    self.texts = opts.texts or require('texts')
+    self.clock = opts.clock or os.clock
+    self.registry = {}
+    self.by_name = {}
+
+    -- banner state
+    self.alpha_current = 0
+    self.fade_state = 'hidden'
+    self.fade_start = 0
+    self.last_ws_time = 0
+    self.is_whiff = false
+    self.whiff_shaking, self.whiff_shake_start = false, 0
+    self.pop_active, self.pop_start = false, 0
+    self.flair_visible, self.flair_fading = false, false
+    self.flair_fade_start, self.flair_base_size, self.flair_fade_start_alpha, self.flair_start_y = 0, 0, 255, 0
+    self.sc_visible, self.sc_fading = false, false
+    self.sc_fade_start, self.sc_fade_start_alpha, self.sc_start_y = 0, 255, 0
+    self.layout_refresh_until = 0
+    self.banner = {label = 'Last WS: -!', dmg = '-', avg = '-', avg_raw = 0, trend = '', trend_color = {255, 255, 255}, raw = 0, cranked = 'CRANKED!!!'}
+    self.party_lines = nil
+
+    -- sc state
+    self.sc_bar_active = false
+    self.sc_phase = nil
+    self.sc_target = nil
+    self.sc_bar_shake_start = 0
+    self.chain_counter_visible = false
+    self.chain_info_visible, self.chain_info_fading = false, false
+    self.chain_info_fade_start = 0
+    self.chain_info_key = nil
+    self.chain_info_elements = ''
+    self.chain_info_color = {255, 255, 255}
+    self.chain_info_shake_start = 0
+    self.detail_value = ''
+
+    -- mb state
+    self.mb_visible, self.mb_start_time, self.mb_expire, self.mb_shake_start = false, 0, 0, 0
+
+    local s = self.settings
+    self:obj('ws', s.ws_size)
+    self:obj('dmg', s.dmg_size)
+    self:obj('avg', s.avg_size)
+    self:obj('avg_label', s.avg_size)
+    self:obj('avg_value', s.avg_size)
+    self:obj('avg_trend', s.avg_size)
+    self:obj('sc', s.sc_size or s.avg_size)
+    self:obj('sc_bar', s.sc_bar_size or s.avg_size)
+    self:obj('sc_bar_label', s.sc_bar_label_size or 15)
+    self:obj('sc_bar_status', s.sc_bar_label_size or 15)
+    self:obj('sc_chain_counter', s.sc_chain_counter_size or 18)
+    self:obj('sc_chain_info', s.sc_chain_info_size or 20)
+    self:obj('sc_chain_info_name', s.sc_chain_info_size or 20)
+    self:obj('sc_chain_info_elements', s.sc_chain_info_size or 20)
+    self:obj('sc_detail', s.sc_detail_size or 13)
+    self:obj('mb', s.mb_size or 18)
+    self:obj('flair', s.flair_size)
+    self:obj('party', s.party_panel_size or 13)
+
+    for _, o in ipairs(self.registry) do o:hide() end
+    return self
+end
+
+function Hud:text_settings(size)
+    local s = self.settings
+    return {
+        pos = {x = s.center_x, y = s.center_y},
+        bg = {visible = false, alpha = 0},
+        flags = {bold = true, draggable = false, right = false, bottom = false},
+        padding = 0,
+        text = {
+            font = s.font, size = size, alpha = 255, red = 255, green = 255, blue = 255,
+            stroke = {width = s.stroke_width, alpha = 255, red = 0, green = 0, blue = 0},
+        },
+    }
+end
+
+function Hud:obj(name, size)
+    local o = self.texts.new('', self:text_settings(size))
+    self.registry[#self.registry + 1] = o
+    self.by_name[name] = o
+    self[name] = o
+    return o
+end
+
+function Hud:each(names, fn)
+    for _, n in ipairs(names) do fn(self.by_name[n], n) end
+end
+
+local function set_alpha(o, a)
+    o:alpha(a)
+    o:stroke_alpha(a)
+end
+
+local function extents(o)
+    local w = o:extents()
+    return tonumber(w) or 0
+end
+
+---------------------------------------------------------------------------
+-- Visibility rules
+---------------------------------------------------------------------------
+
+function Hud:banner_visible()
+    return self.fade_state ~= 'hidden' and self.alpha_current > 0
+end
+
+function Hud:sc_allowed()
+    if self.manual_hidden then return false end
+    if self.settings.sc_hud_independent then return true end
+    return self:banner_visible()
+end
+
+function Hud:sc_alpha()
+    if self.settings.sc_hud_independent then return 255 end
+    return self.alpha_current > 0 and self.alpha_current or 255
+end
+
+function Hud:party_enabled()
+    return self.settings.party_panel and self.party_lines ~= nil and self.party_lines ~= ''
+end
+
+function Hud:apply_alpha(alpha)
+    alpha = clamp(math.floor(alpha or 255), 0, 255)
+    self.alpha_current = alpha
+
+    for _, n in ipairs({'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do
+        set_alpha(self[n], alpha)
+    end
+    if self.sc_visible and not self.sc_fading then set_alpha(self.sc, alpha) end
+    if not self.flair_fading then set_alpha(self.flair, alpha) end
+    if not self.settings.sc_hud_independent then
+        if self.sc_bar_active then
+            set_alpha(self.sc_bar, alpha); set_alpha(self.sc_bar_label, alpha); set_alpha(self.sc_bar_status, alpha)
+            set_alpha(self.sc_detail, alpha)
+        end
+        if self.chain_counter_visible then set_alpha(self.sc_chain_counter, alpha) end
+        if self.chain_info_visible and not self.chain_info_fading then
+            set_alpha(self.sc_chain_info, alpha); set_alpha(self.sc_chain_info_name, alpha); set_alpha(self.sc_chain_info_elements, alpha)
+        end
+    end
+
+    if alpha <= 0 then
+        self:each(M.BANNER, function(o) o:hide() end)
+        if not self.settings.sc_hud_independent then
+            self:each(M.SC, function(o) o:hide() end)
+        end
+    else
+        self.ws:show(); self.dmg:show(); self.avg_label:show(); self.avg_value:show()
+        self.avg:hide()
+        if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
+        if self.sc_visible then self.sc:show() end
+        if self.flair_visible then self.flair:show() end
+        if self:party_enabled() then self.party:show() else self.party:hide() end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Layout
+---------------------------------------------------------------------------
+
+function Hud:request_layout_refresh(duration)
+    self.layout_refresh_until = self.clock() + (duration or 0.35)
+end
+
+function Hud:position_line(o, y)
+    o:pos(math.floor(self.settings.center_x - (extents(o) / 2)), y)
+end
+
+function Hud:position_avg_line()
+    local s = self.settings
+    local x = self.ws:pos()
+    local y = s.center_y + s.avg_gap
+    self.avg_label:pos(x, y)
+    local lw = extents(self.avg_label)
+    self.avg_value:pos(math.floor(x + lw), y)
+    local vw = extents(self.avg_value)
+    self.avg_trend:pos(math.floor(x + lw + vw + 8), y - 5)
+    self.avg:hide()
+end
+
+local function shake_offset(start, duration, strength, freq, clock)
+    if not start or start <= 0 then return 0, 0 end
+    local t = (clock - start) / math.max(duration, 0.01)
+    if t >= 1 then return 0, 0 end
+    return math.floor(math.sin(t * freq) * strength * (1 - t)), start
+end
+
+function Hud:position_sc_bar()
+    local s = self.settings
+    local now = self.clock()
+    local y = s.center_y + (s.sc_bar_gap or ((s.avg_gap or 99) + 34))
+    local bar_w = extents(self.sc_bar)
+    local x = self.ws:pos()
+
+    local dx, keep = shake_offset(self.sc_bar_shake_start, s.sc_bar_shake_duration or 0.35, s.sc_bar_shake_strength or 5, 60, now)
+    self.sc_bar_shake_start = keep
+    x = math.floor(x + dx)
+    self.sc_bar:pos(x, y)
+
+    local lw = extents(self.sc_bar_label)
+    local sw = extents(self.sc_bar_status)
+    local lx = math.floor(x + (bar_w / 2) - ((lw + sw) / 2))
+    local ly = math.floor(y + (s.sc_bar_label_overlap or 20))
+    self.sc_bar_label:pos(lx, ly)
+    self.sc_bar_status:pos(math.floor(lx + lw), ly)
+    self.sc_chain_counter:pos(math.floor(lx + lw + sw + (s.sc_chain_counter_gap or 6)), ly)
+end
+
+function Hud:chain_info_y()
+    local s = self.settings
+    return s.center_y + (s.sc_chain_info_gap or 175) + (s.sc_chain_info_offset_y or 4)
+end
+
+function Hud:position_chain_info()
+    local s = self.settings
+    local x = self.ws:pos()
+    local y = self:chain_info_y()
+    local dx, keep = shake_offset(self.chain_info_shake_start, s.sc_chain_info_shake_duration or 0.75, s.sc_chain_info_shake_strength or 8, 80, self.clock())
+    self.chain_info_shake_start = keep
+    x = math.floor(x + dx)
+    self.sc_chain_info:pos(x, y)
+    local nx = math.floor(x + extents(self.sc_chain_info) + 4)
+    self.sc_chain_info_name:pos(nx, y)
+    self.sc_chain_info_elements:pos(math.floor(nx + extents(self.sc_chain_info_name)), y)
+end
+
+-- Screen size from Windower (falls back to 1080p).
+function M.screen()
+    local ok, ws = pcall(function() return windower.get_windower_settings() end)
+    if ok and type(ws) == 'table' then
+        return ws.ui_x_res or ws.x_res or 1920, ws.ui_y_res or ws.y_res or 1080
+    end
+    return 1920, 1080
+end
+
+-- Closer list sits under the chain info line. If that would run off the
+-- bottom of the screen, it flips above the Last WS line instead.
+function Hud:position_detail()
+    local s = self.settings
+    local _, sh = M.screen()
+    local _, h = self.sc_detail:extents()
+    h = tonumber(h) or 0
+    local x = math.floor(self.ws:pos() + (s.sc_detail_offset_x or 0))
+    local y = math.floor(self:chain_info_y() + (s.sc_detail_gap or 30))
+    if y + h > sh then
+        y = math.floor(s.center_y - (s.sc_detail_gap or 30) - h)
+    end
+    self.sc_detail:pos(x, math.max(0, y))
+end
+
+function Hud:position_mb()
+    local s = self.settings
+    local w = extents(self.mb)
+    local x, y
+    if self.sc_bar_active then
+        local bx, by = self.sc_bar:pos()
+        x = math.floor(bx + (extents(self.sc_bar) / 2) - (w / 2) + (s.mb_offset_x or 0))
+        y = math.floor(by + (s.mb_offset_y or -4))
+    else
+        x = math.floor(s.center_x - (w / 2) + (s.mb_offset_x or 0))
+        y = math.floor(s.center_y + (s.sc_bar_gap or ((s.avg_gap or 99) + 34)) + (s.mb_offset_y or -4))
+    end
+    local dx, keep = shake_offset(self.mb_shake_start, s.mb_shake_duration or 0.50, s.mb_shake_strength or 5, 80, self.clock())
+    self.mb_shake_start = keep
+    self.mb:pos(x + dx, y)
+end
+
+-- Party panel docks to the right of the banner, or to the left when the
+-- right side would run off screen.
+function Hud:position_party()
+    local s = self.settings
+    local sw, sh = M.screen()
+    local w, h = self.party:extents()
+    w, h = tonumber(w) or 0, tonumber(h) or 0
+    local off = s.party_panel_offset_x or 260
+    local x = math.floor(s.center_x + off)
+    if x + w > sw then
+        x = math.floor(s.center_x - off - w)
+    end
+    local y = math.floor(s.center_y + (s.party_panel_offset_y or 0))
+    if y + h > sh then y = sh - h end
+    self.party:pos(math.max(0, x), math.max(0, y))
+end
+
+function Hud:update_display()
+    local s = self.settings
+    local b = self.banner
+    self.ws:text(b.label)
+    self.dmg:text(self.is_whiff and 'WHIFF!!' or (b.dmg .. ' damage!!'))
+    self.avg:text('')
+    self.avg_label:text('Avg: ')
+    self.avg_value:text(b.avg)
+    self:apply_trend_style()
+
+    self:position_line(self.ws, s.center_y)
+    if not self.whiff_shaking then
+        self:position_line(self.dmg, s.center_y + s.line_gap)
+    end
+    self:position_avg_line()
+    if self.sc_bar_active then self:position_sc_bar() end
+    if self.chain_info_visible then self:position_chain_info() end
+    if self.sc_bar_active then self:position_detail() end
+    if self.mb_visible then self:position_mb() end
+    if self.flair_visible and not self.flair_fading then
+        self:position_line(self.flair, s.center_y + s.flair_gap)
+    end
+    self:position_party()
+end
+
+---------------------------------------------------------------------------
+-- Styles
+---------------------------------------------------------------------------
+
+function Hud:apply_avg_style(avg)
+    local s = self.settings
+    avg = tonumber(avg) or 0
+    local o = self.avg_value
+    if avg >= 80000 then
+        o:color(255, 70, 70); o:stroke_width(s.big_stroke_width)
+    elseif avg >= 50000 then
+        o:color(255, 215, 0); o:stroke_width(s.big_stroke_width)
+    elseif avg >= 10000 then
+        o:color(100, 170, 255); o:stroke_width(s.stroke_width)
+    else
+        o:color(255, 255, 255); o:stroke_width(s.stroke_width)
+    end
+end
+
+function Hud:apply_trend_style()
+    local b = self.banner
+    local o = self.avg_trend
+    o:text(b.trend or '')
+    o:font('Consolas')
+    o:size(self.settings.avg_size)
+    o:color(b.trend_color[1] or 255, b.trend_color[2] or 255, b.trend_color[3] or 255)
+    o:stroke_width(self.settings.stroke_width)
+    if b.trend ~= '' and self:banner_visible() then o:show() else o:hide() end
+end
+
+function Hud:apply_damage_style()
+    local s = self.settings
+    local r, g, b, stroke, flair = M.damage_style(self.banner.raw, self.is_whiff, s, self.banner.cranked)
+    self.dmg:color(r, g, b)
+    self.dmg:stroke_width(stroke)
+    local f = self.flair
+    if flair then
+        f:text(flair)
+        f:color(255, 255, 255)
+        f:stroke_width(stroke)
+        f:size(s.flair_size)
+        set_alpha(f, self.alpha_current)
+        f:show()
+        self.flair_visible, self.flair_fading = true, true
+        self.flair_fade_start = self.clock()
+        self.flair_base_size = s.flair_size
+        self.flair_fade_start_alpha = self.alpha_current
+        self.flair_start_y = s.center_y + s.flair_gap
+    else
+        f:hide()
+        self.flair_visible, self.flair_fading = false, false
+        self.flair_fade_start = 0
+    end
+end
+
+---------------------------------------------------------------------------
+-- Banner (hero) updates
+---------------------------------------------------------------------------
+
+function Hud:start_damage_fade_in()
+    if not self.settings.fade_enabled then
+        self.fade_state = 'visible'
+        self:apply_alpha(255)
+        return
+    end
+    self.fade_state = 'damage_fade_in'
+    self.fade_start = self.clock()
+    self.ws:show(); self.dmg:show(); self.avg_label:show(); self.avg_value:show()
+    if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
+    if self.sc_visible then self.sc:show() end
+    for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do set_alpha(self[n], 255) end
+    if self.sc_visible and not self.sc_fading then set_alpha(self.sc, 255) end
+    set_alpha(self.dmg, 1)
+    if self.flair_visible then
+        self.flair:show()
+        if self.flair_fading then
+            self.flair_fade_start_alpha = 255
+            set_alpha(self.flair, 255)
+        end
+    end
+    if self:party_enabled() then self.party:show() end
+    self.alpha_current = 255
+end
+
+function Hud:start_pop(raw)
+    local s = self.settings
+    if not s.pop_enabled or (tonumber(raw) or 0) < 50000 then return end
+    self.pop_active = true
+    self.pop_start = self.clock()
+    self.dmg:size(s.dmg_size + s.pop_bonus_size)
+    self:update_display()
+end
+
+-- entry: {label, damage (number), whiff (bool), avg (number|nil),
+--         trend, trend_color, streak}
+function Hud:show_ws(entry)
+    self.manual_hidden = false
+    self.is_whiff = entry.whiff and true or false
+    local b = self.banner
+    b.label = entry.label
+    b.raw = self.is_whiff and 0 or (tonumber(entry.damage) or 0)
+    b.dmg = self.is_whiff and 'WHIFF' or M.format_number(b.raw)
+    if entry.avg then
+        b.avg = M.format_number(entry.avg)
+        b.avg_raw = entry.avg
+    else
+        b.avg, b.avg_raw = '-', 0
+    end
+    b.trend = entry.trend or ''
+    b.trend_color = entry.trend_color or {255, 255, 255}
+    b.cranked = M.cranked_text(entry.streak)
+
+    self.last_ws_time = self.clock()
+    self:apply_avg_style(b.avg_raw)
+    self:apply_damage_style()
+    self:update_display()
+    self:request_layout_refresh(0.45)
+    if self.is_whiff then
+        self.whiff_shaking = true
+        self.whiff_shake_start = self.clock()
+    else
+        self.whiff_shaking = false
+        self:start_pop(b.raw)
+    end
+    self:start_damage_fade_in()
+end
+
+function Hud:reset_banner_average()
+    local b = self.banner
+    b.avg, b.avg_raw, b.trend, b.trend_color = '-', 0, '', {255, 255, 255}
+    self:apply_avg_style(0)
+    self:apply_trend_style()
+    self:update_display()
+    self:request_layout_refresh(0.45)
+end
+
+function Hud:position_sc_line(y)
+    self.sc:pos(math.floor(self.settings.center_x - (extents(self.sc) / 2)), y)
+end
+
+-- SC Bonus float: tied to the banner (decision 6).
+function Hud:sc_bonus(dmg)
+    local s = self.settings
+    if not s.sc_enabled or not self:banner_visible() then return false end
+    local raw = tonumber(dmg) or 0
+    if raw < 0 then return false end
+    local o = self.sc
+    o:text('SC Bonus: ' .. M.format_number(raw) .. '!!')
+    o:font(s.font)
+    o:size(s.sc_size or s.flair_size)
+    o:color(120, 255, 255)
+    o:stroke_width(s.stroke_width)
+    set_alpha(o, 255)
+    self.sc_start_y = s.center_y + (s.sc_gap or s.flair_gap or 118)
+    self:position_sc_line(math.floor(self.sc_start_y + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+    self.sc_visible, self.sc_fading = true, true
+    self.sc_fade_start = self.clock()
+    self.sc_fade_start_alpha = 255
+    o:show()
+    return true
+end
+
+function Hud:mb_popup(dmg)
+    local s = self.settings
+    if not s.mb_enabled then return false end
+    local raw = tonumber(tostring(dmg or '0'):gsub(',', ''), 10) or 0
+    if raw < 0 then return false end
+    local o = self.mb
+    o:text('MB: ' .. M.format_number(raw) .. '!!')
+    o:font(s.font or 'Highwind')
+    o:size(s.mb_size or 18)
+    o:color(255, 140, 255)
+    o:stroke_width(s.stroke_width)
+    set_alpha(o, 0)
+    self.mb_visible = true
+    self.mb_start_time = self.clock()
+    self.mb_shake_start = self.mb_start_time
+    self.mb_expire = self.mb_start_time + (s.mb_duration or 3.0)
+    self:position_mb()
+    o:show()
+    return true
+end
+
+function Hud:hide_mb()
+    self.mb_visible = false
+    self.mb:hide()
+end
+
+function Hud:set_party_lines(text)
+    self.party_lines = text
+    local o = self.party
+    o:text(text or '')
+    o:font(self.settings.party_panel_font or 'Consolas')
+    o:size(self.settings.party_panel_size or 13)
+    o:color(255, 255, 255)
+    o:stroke_width(math.max(1, (self.settings.stroke_width or 4) - 2))
+    self:position_party()
+    if self:party_enabled() and self:banner_visible() then
+        set_alpha(o, self.alpha_current)
+        o:show()
+    else
+        o:hide()
+    end
+end
+
+---------------------------------------------------------------------------
+-- SC HUD
+---------------------------------------------------------------------------
+
+function Hud:hide_chain_info()
+    self.chain_info_visible, self.chain_info_fading = false, false
+    self.chain_info_fade_start = 0
+    self.chain_info_key = nil
+    self.sc_chain_info:hide(); self.sc_chain_info_name:hide(); self.sc_chain_info_elements:hide()
+end
+
+function Hud:fade_chain_info()
+    -- //cw testsc holds the line for sc_chain_info_duration seconds.
+    if self.chain_info_hold_until and self.clock() < self.chain_info_hold_until then return end
+    if self.chain_info_visible and not self.chain_info_fading then
+        self.chain_info_fading = true
+        self.chain_info_fade_start = self.clock()
+    end
+end
+
+function Hud:show_chain_info(chain_num, sc_name, show_elements)
+    local s = self.settings
+    if not s.sc_bar_enabled or not s.sc_chain_info_enabled then return end
+    sc_name = tostring(sc_name or 'Skillchain')
+    local r, g, b = M.sc_color(sc_name)
+    local elements = show_elements ~= false and SC_ELEMENTS[sc_name] or nil
+    self.chain_info_elements = elements and (' (%s)'):format(elements) or ''
+    self.chain_info_color = {r, g, b}
+    local key = sc_name:lower()
+    self.chain_info_shake_start = (key == 'radiance' or key == 'umbra') and self.clock() or 0
+
+    local a = self:sc_alpha()
+    local font, size = s.font or 'Highwind', s.sc_chain_info_size or 20
+    local function style(o, txt, cr, cg, cb)
+        o:text(txt); o:font(font); o:size(size); o:color(cr, cg, cb)
+        o:stroke_width(s.stroke_width); set_alpha(o, a)
+    end
+    style(self.sc_chain_info, 'Chain ' .. tostring(math.max(1, tonumber(chain_num) or 1)) .. ':', 255, 255, 255)
+    style(self.sc_chain_info_name, sc_name, r, g, b)
+    style(self.sc_chain_info_elements, self.chain_info_elements, 255, 255, 255)
+
+    self.chain_info_visible, self.chain_info_fading = true, false
+    self.chain_info_fade_start = 0
+    self:position_chain_info()
+    if self:sc_allowed() then
+        self.sc_chain_info:show(); self.sc_chain_info_name:show()
+        if self.chain_info_elements ~= '' then self.sc_chain_info_elements:show() else self.sc_chain_info_elements:hide() end
+    end
+end
+
+function Hud:hide_sc_group()
+    self.sc_bar_active = false
+    self.sc_phase, self.sc_target = nil, nil
+    self.sc_bar:hide(); self.sc_bar_label:hide(); self.sc_bar_status:hide()
+    self.chain_counter_visible = false
+    self.sc_chain_counter:hide()
+    self.sc_detail:hide()
+end
+
+function M.detail_lines(view)
+    local lines = {}
+    if view.show_step then
+        lines[#lines + 1] = ('Step: %d → %s'):format(view.step or 1, tostring(view.name or '?'))
+    end
+    if view.show_props then
+        lines[#lines + 1] = ('[%s] %s'):format(view.props or '', view.elements or '')
+    elseif view.show_burst and (view.elements or '') ~= '' then
+        lines[#lines + 1] = view.elements
+    end
+    if view.closers and view.closers ~= '' then
+        lines[#lines + 1] = view.closers
+    end
+    return tconcat(lines, '\n')
+end
+
+-- view: sc_engine Engine:view() output (or a test view), or nil.
+function Hud:render_sc(view)
+    local s = self.settings
+    if not s.sc_bar_enabled or not view then
+        if self.sc_bar_active then self:hide_sc_group() end
+        self:fade_chain_info()
+        return
+    end
+
+    local now = self.clock()
+    local first = not self.sc_bar_active or self.sc_target ~= view.target_id
+    self.sc_bar_active = true
+    local a = self:sc_alpha()
+
+    -- Bar + status
+    local bar, label, status = self.sc_bar, self.sc_bar_label, self.sc_bar_status
+    local width = s.sc_bar_width or 34
+    local timer = ''
+    if view.phase == 'wait' then
+        if view.show_timer then timer = (' %.1f'):format(view.wait_remaining) end
+        bar:color(255, 70, 70)
+        bar:text(M.make_bar(width, view.wait_remaining / math.max(view.wait_total, 0.01)))
+        status:color(255, 40, 40)
+        status:text('Wait. . .' .. timer)
+    elseif view.phase == 'go' then
+        if not first and self.sc_phase == 'wait' then self.sc_bar_shake_start = now end
+        if view.show_timer then timer = (' %.1f'):format(view.remaining) end
+        bar:color(80, 255, 120)
+        bar:text(M.make_bar(width, view.remaining / math.max(view.window_total, 0.01)))
+        status:color(80, 255, 80)
+        status:text('GO!!' .. timer)
+    else -- burst
+        if view.show_timer then timer = (' %d'):format(math.floor(view.remaining)) end
+        bar:color(255, 140, 255)
+        bar:text(M.make_bar(width, view.remaining / math.max(view.window_total, 0.01)))
+        status:color(255, 140, 255)
+        status:text('Burst!' .. timer)
+    end
+    label:color(255, 255, 255)
+    label:text('SC Window: ')
+    self.sc_phase = view.phase
+    self.sc_target = view.target_id
+
+    bar:font(s.sc_bar_font or 'Consolas'); bar:size(s.sc_bar_size or s.avg_size); bar:stroke_width(s.stroke_width)
+    for _, o in ipairs({label, status, self.sc_chain_counter}) do
+        o:font(s.font or 'Highwind'); o:stroke_width(s.stroke_width)
+    end
+    label:size(s.sc_bar_label_size or 15); status:size(s.sc_bar_label_size or 15)
+    self.sc_chain_counter:size(s.sc_chain_counter_size or 18)
+
+    -- Chain counter
+    self.chain_counter_visible = s.sc_chain_counter_enabled and (view.chain or 0) > 0
+    if self.chain_counter_visible then
+        self.sc_chain_counter:text('Chain: ' .. tostring(view.chain))
+        self.sc_chain_counter:color(255, 255, 255)
+    end
+
+    -- Chain info: re-render when target or step changes.
+    local key = tostring(view.target_id) .. ':' .. tostring(view.step)
+    if view.sc_name then
+        if key ~= self.chain_info_key then
+            self:show_chain_info(view.chain, view.sc_name, view.show_burst)
+            self.chain_info_key = key
+        end
+    elseif self.chain_info_visible then
+        self:fade_chain_info()
+        self.chain_info_key = nil
+    end
+
+    -- Detail block (Step / properties / closers)
+    self.detail_value = M.detail_lines(view)
+    local d = self.sc_detail
+    d:text(self.detail_value)
+    d:font(s.sc_detail_font or 'Consolas')
+    d:size(s.sc_detail_size or 13)
+    d:color(255, 255, 255)
+    d:stroke_width(math.max(1, (s.stroke_width or 4) - 2))
+
+    self:position_sc_bar()
+    self:position_detail()
+    if self.mb_visible then self:position_mb() end
+
+    if self:sc_allowed() then
+        for _, o in ipairs({bar, label, status}) do set_alpha(o, a); o:show() end
+        if self.chain_counter_visible then set_alpha(self.sc_chain_counter, a); self.sc_chain_counter:show() else self.sc_chain_counter:hide() end
+        if self.detail_value ~= '' then set_alpha(d, a); d:show() else d:hide() end
+    else
+        for _, o in ipairs({bar, label, status, self.sc_chain_counter, d}) do o:hide() end
+    end
+end
+
+-- Synthetic view for //cw testbar: Wait for `delay`, then a 7s GO window.
+function Hud:start_test_bar(delay)
+    self.test_bar = {start = self.clock(), delay = tonumber(delay) or 3}
+end
+
+function Hud:test_view(now)
+    local t = self.test_bar
+    if not t then return nil end
+    now = now or self.clock()
+    local elapsed = now - t.start
+    local window = 7
+    if elapsed >= t.delay + window then
+        self.test_bar = nil
+        return nil
+    end
+    return {
+        target_id = 'test',
+        phase = elapsed < t.delay and 'wait' or 'go',
+        wait_remaining = math.max(0, t.delay - elapsed),
+        wait_total = math.max(t.delay, 0.01),
+        remaining = t.delay + window - elapsed,
+        window_total = window,
+        step = 1, chain = 0, name = 'Savage Blade',
+        props = 'Fragmentation,Scission', elements = '',
+        closers = '', show_timer = true, show_step = true, show_props = true, show_burst = true,
+    }
+end
+
+---------------------------------------------------------------------------
+-- Per-frame animation
+---------------------------------------------------------------------------
+
+function Hud:update(now)
+    now = now or self.clock()
+    local s = self.settings
+
+    if self.layout_refresh_until > 0 then
+        if now <= self.layout_refresh_until then
+            self:update_display()
+        else
+            self.layout_refresh_until = 0
+        end
+    end
+
+    -- MB popup
+    if self.mb_visible then
+        if now >= self.mb_expire then
+            self:hide_mb()
+        else
+            local fade_in = math.max(s.mb_fade_in_duration or 0.15, 0.01)
+            local fade_out = math.max(s.mb_fade_out_duration or 0.35, 0.01)
+            local elapsed = now - self.mb_start_time
+            local remaining = self.mb_expire - now
+            local a = 255
+            if elapsed < fade_in then
+                a = math.floor(255 * (elapsed / fade_in))
+            elseif remaining < fade_out then
+                a = math.floor(255 * (remaining / fade_out))
+            end
+            set_alpha(self.mb, clamp(a, 0, 255))
+            self:position_mb()
+            self.mb:show()
+        end
+    end
+
+    -- SC Bonus float
+    if self.sc_visible and self.sc_fading then
+        local t = (now - self.sc_fade_start) / math.max(s.sc_fade_duration or 4.5, 0.01)
+        if t >= 1 then
+            self.sc:hide()
+            self.sc_visible, self.sc_fading = false, false
+            set_alpha(self.sc, 0)
+        else
+            local eased = 1 - ((1 - t) * (1 - t))
+            set_alpha(self.sc, math.floor(self.sc_fade_start_alpha * (1 - t)))
+            self.sc:show()
+            local y = math.floor(self.sc_start_y - ((s.sc_float_distance or 32) * eased))
+            self:position_sc_line(math.floor(y + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+        end
+    end
+
+    -- Chain info (fade / shake)
+    if self.chain_info_visible then
+        if not self:sc_allowed() then
+            self.sc_chain_info:hide(); self.sc_chain_info_name:hide(); self.sc_chain_info_elements:hide()
+        else
+            self:position_chain_info()
+            local base = self:sc_alpha()
+            local a = base
+            if self.chain_info_fading then
+                local t = (now - self.chain_info_fade_start) / 0.75
+                if t >= 1 then
+                    self:hide_chain_info()
+                    a = nil
+                else
+                    a = math.floor(base * (1 - t))
+                end
+            end
+            if a then
+                set_alpha(self.sc_chain_info, a); set_alpha(self.sc_chain_info_name, a); set_alpha(self.sc_chain_info_elements, a)
+                self.sc_chain_info:show(); self.sc_chain_info_name:show()
+                if self.chain_info_elements ~= '' then self.sc_chain_info_elements:show() else self.sc_chain_info_elements:hide() end
+            end
+        end
+    end
+
+    -- Flair float / shrink
+    if self.flair_visible and self.flair_fading then
+        local t = (now - self.flair_fade_start) / math.max(s.flair_fade_duration, 0.01)
+        if t >= 1 then
+            self.flair:hide()
+            self.flair_visible, self.flair_fading = false, false
+            self.flair:size(s.flair_size)
+            set_alpha(self.flair, 0)
+        else
+            local eased = 1 - ((1 - t) * (1 - t))
+            local y = math.floor(self.flair_start_y - ((s.flair_float_distance or 32) * eased))
+            self.flair:size(math.max(1, math.floor(self.flair_base_size - ((s.flair_shrink_size or 0) * t))))
+            set_alpha(self.flair, math.floor(self.flair_fade_start_alpha * (1 - t)))
+            self.flair:show()
+            local dx = self.dmg:pos()
+            self.flair:pos(math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72))), math.floor(y + (s.flair_offset_y or -4)))
+        end
+    end
+
+    -- WHIFF shake
+    if self.whiff_shaking then
+        local t = (now - self.whiff_shake_start) / math.max(s.whiff_shake_duration, 0.01)
+        if t >= 1 then
+            self.whiff_shaking = false
+            self:update_display()
+        else
+            local offset = math.floor(math.sin(t * 70) * s.whiff_shake_strength * (1 - t))
+            self.dmg:pos(math.floor(s.center_x - (extents(self.dmg) / 2)) + offset, s.center_y + s.line_gap)
+        end
+    end
+
+    -- Pop
+    if self.pop_active then
+        local t = (now - self.pop_start) / math.max(s.pop_duration, 0.01)
+        if t >= 1 then
+            self.pop_active = false
+            self.dmg:size(s.dmg_size)
+        else
+            local eased = 1 - ((1 - t) * (1 - t))
+            self.dmg:size(math.floor((s.dmg_size + s.pop_bonus_size) - (s.pop_bonus_size * eased)))
+        end
+        self:update_display()
+    end
+
+    if not s.fade_enabled then return end
+
+    if self.fade_state == 'damage_fade_in' then
+        local t = (now - self.fade_start) / math.max(s.fade_in_duration, 0.01)
+        for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do set_alpha(self[n], 255) end
+        if t >= 1 then
+            self.fade_state = 'visible'
+            set_alpha(self.dmg, 255)
+        else
+            set_alpha(self.dmg, math.max(1, math.floor(255 * t)))
+        end
+    elseif self.fade_state == 'visible' then
+        if self.last_ws_time > 0 and (now - self.last_ws_time) >= s.hold_duration then
+            self.fade_state = 'fade_out'
+            self.fade_start = now
+        end
+    elseif self.fade_state == 'fade_out' then
+        local t = (now - self.fade_start) / math.max(s.fade_out_duration, 0.01)
+        if t >= 1 then
+            self.fade_state = 'hidden'
+            self:apply_alpha(0)
+        else
+            self:apply_alpha(255 * (1 - t))
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Commands support
+---------------------------------------------------------------------------
+
+function Hud:force_visible()
+    self.manual_hidden = false
+    self.fade_state = 'visible'
+    self.alpha_current = 255
+    self.last_ws_time = self.clock()
+    self:apply_alpha(255)
+    self:update_display()
+    self:request_layout_refresh(0.45)
+end
+
+-- //cw hide: hides every object, including chain info and MB.
+-- Stays hidden (SC HUD included) until //cw show or your next banner WS.
+function Hud:hide_all()
+    self.manual_hidden = true
+    for _, o in ipairs(self.registry) do o:hide() end
+    self.fade_state = 'hidden'
+    self.alpha_current = 0
+    self.sc_bar_active = false
+    self.chain_counter_visible = false
+    self.chain_info_visible, self.chain_info_fading = false, false
+    self.chain_info_key = nil
+    self.mb_visible = false
+    self.sc_visible, self.sc_fading = false, false
+    self.flair_visible, self.flair_fading = false, false
+    self.test_bar = nil
+end
+
+function Hud:apply_all_visual_settings()
+    local s = self.settings
+    local font = s.font
+    for _, o in ipairs(self.registry) do o:font(font) end
+    self.avg_trend:font('Consolas')
+    self.sc_bar:font(s.sc_bar_font or 'Consolas')
+    self.sc_detail:font(s.sc_detail_font or 'Consolas')
+    self.party:font(s.party_panel_font or 'Consolas')
+
+    local sizes = {
+        ws = s.ws_size, dmg = s.dmg_size, avg = s.avg_size, avg_label = s.avg_size,
+        avg_value = s.avg_size, avg_trend = s.avg_size, sc = s.sc_size or s.flair_size,
+        sc_bar = s.sc_bar_size or s.avg_size, sc_bar_label = s.sc_bar_label_size or 15,
+        sc_bar_status = s.sc_bar_label_size or 15, sc_chain_counter = s.sc_chain_counter_size or 18,
+        sc_chain_info = s.sc_chain_info_size or 20, sc_chain_info_name = s.sc_chain_info_size or 20,
+        sc_chain_info_elements = s.sc_chain_info_size or 20, sc_detail = s.sc_detail_size or 13,
+        mb = s.mb_size or 22, flair = s.flair_size, party = s.party_panel_size or 13,
+    }
+    for name, size in pairs(sizes) do self.by_name[name]:size(size) end
+
+    local thin = math.max(1, (s.stroke_width or 4) - 2)
+    for _, o in ipairs(self.registry) do o:stroke_width(s.stroke_width) end
+    self.sc_detail:stroke_width(thin)
+    self.party:stroke_width(thin)
+
+    self.ws:color(255, 255, 255)
+    self.avg:color(255, 255, 255)
+    self.avg_label:color(255, 255, 255)
+    self.sc:color(120, 255, 255)
+    self.sc_bar:color(80, 255, 120)
+    self.sc_bar_label:color(255, 255, 255)
+    self.sc_bar_status:color(80, 255, 80)
+    self.sc_chain_counter:color(255, 255, 255)
+    self.sc_chain_info:color(255, 255, 255)
+    local c = self.chain_info_color
+    self.sc_chain_info_name:color(c[1], c[2], c[3])
+    self.sc_chain_info_elements:color(255, 255, 255)
+    self.sc_detail:color(255, 255, 255)
+    self.party:color(255, 255, 255)
+    self:apply_trend_style()
+    self:apply_avg_style(self.banner.avg_raw)
+    self:apply_damage_style()
+    self:update_display()
+    self:request_layout_refresh(0.45)
+end
+
+function Hud:destroy()
+    for _, o in ipairs(self.registry) do
+        pcall(o.destroy, o)
+    end
+    self.registry = {}
+end
+
+return M
