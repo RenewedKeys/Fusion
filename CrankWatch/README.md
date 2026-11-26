@@ -7,8 +7,8 @@ It shows:
 
 - a big **banner** with the last WS, its damage, your running average, and
   flair for big hits (BIG HIT, MASSIVE HIT, CRANKED);
-- a **skillchain HUD** on your target: Wait/GO timer bar, chain counter,
-  which skillchain was made, and a list of what you can use next;
+- a **skillchain block** on your target: what you can use next, with a
+  red/green Wait/GO countdown bar underneath;
 - **Magic Burst popups** for you and your party's mages;
 - a **party panel** tallying everyone's WSs and Magic Bursts.
 
@@ -78,7 +78,6 @@ positions, fonts and sizes are kept, and new options get their defaults.
 //cw party on            the party panel: WS and Magic Burst tallies
 //cw mbparty on          party mages' bursts pop with their name (on by default)
 //cw trusts on           only if you play with trusts
-//cw scdetail off        optional: just the countdown bar, no closer list
 //cw move                drag everything into place, then //cw move again
 ```
 
@@ -115,16 +114,17 @@ Avg: 43,210 ↑                   ← average for whoever's WS is shown, plus tr
   (only while the banner is showing).
 - The banner fades in on each WS, holds for 60 seconds, then fades out.
 
-### The skillchain HUD
+### The skillchain block
+
+One block that moves as a unit:
 
 ```
-██████████████░░░░              ← timer bar: red = wait, green = GO, pink = burst
-   SC Window: GO!! 4.2  Chain: 2
-Chain 2: Light (Fire/Wind/Thund./Light)
 Step: 3 → Torcleaver            ← chain step → the WS that made it
-[Light] (Fire,Wind,Lightning,Light)   ← active properties, burst elements
+[Light] (Fire,Wind,Lightning,Light)   ← active skillchain, burst elements
 Torcleaver       → Lv.4 Radiance      ← closer list: what you can use next
 Upheaval         → Lv.3 Light         ←   → what it makes (highest level first)
+██████████████░░░░              ← countdown bar: red = wait, green = GO, pink = burst
+   SC Window: GO!! 4.2  Chain: 2  ← seconds left, and how many skillchains so far
 ```
 
 - It appears as soon as **anyone** (party or not) opens a skillchain on your
@@ -135,10 +135,10 @@ Upheaval         → Lv.3 Light         ←   → what it makes (highest level f
 - The closer list only shows what *you* can use: your weapon skills, plus
   Immanence elements on SCH, blue magic on BLU, and pet moves on BST/SMN.
   It accounts for Aeonic weapons and Aftermath.
-- Radiance and Umbra shake the chain line.
-- **Just want the countdown?** `//cw scdetail off` hides the Step /
-  properties / closer list block on every job. The bar, `SC Window: GO!! 4.2`,
-  `Chain: N` and the chain line stay.
+- If the block would run off the bottom of the screen, it moves above the
+  banner.
+- **Just want the countdown?** `//cw scdetail off` hides the top part (Step,
+  properties, closer list) on every job, leaving the bar and timer.
 
 ### Magic Burst popup
 
@@ -177,7 +177,7 @@ Blackmage       7   38,940   52,300
 ```
 
 Every part appears filled with sample data, each with a **coloured box**
-and a **name tag** above it (MB popup, SC bar, Closer list, …). The part
+and a **name tag** above it (MB popup, Skillchain, Party panel, …). The part
 under your mouse brightens, and chat prints the list of parts. Only parts
 you have switched on appear: for example, with the party panel off or
 `//cw scdetail off`, those parts aren't shown and can't be dragged. Drag with the
@@ -187,21 +187,21 @@ you have switched on appear: for example, with the party panel off or
 |---|---|
 | `Last WS` line | the **whole HUD** (everything else is placed relative to it) |
 | damage line, `Avg` line, hit flair, `SC Bonus` | just that line |
-| SC bar | bar, `SC Window` label and chain counter together |
-| chain line, closer list, party panel, MB popup | just that part |
+| Skillchain block | closer list, bar and timer together |
+| party panel, MB popup | just that part |
 
 Each part saves the moment you let go. Type `//cw move` again to finish.
 
 **Why it looks crowded at first.** In move mode everything shows at once.
 In play, several parts share space because they appear at different
-moments: by default the MB popup sits on the SC bar, and the hit flair and
+moments: by default the MB popup sits on the countdown bar, and the hit flair and
 SC Bonus float briefly over the average line. If you'd rather nothing
 overlaps, drag the MB popup, SC Bonus and hit flair clear of the rest.
 Clicks on empty screen still reach the game. WSs that land while you're
 dragging are still recorded, but don't replace the sample.
 
-If the closer list or party panel would run off the edge of the screen, it
-flips to the other side of the banner automatically.
+If the skillchain block or party panel would run off the edge of the screen,
+it moves to the other side of the banner automatically.
 
 **Messed it up?** `//cw resetpos` puts every part back in its default place
 and saves. Sizes, fonts and all other settings are kept. If you changed
@@ -215,8 +215,8 @@ and saves. Sizes, fonts and all other settings are kept. If you changed
 //cw stroke 4          outline thickness
 //cw partysize 13      party panel
 //cw mbsize 24         MB popup
-//cw scdetailsize 13   closer list
-//cw scbarsize 18      SC bar
+//cw scdetailsize 13   closer list (in the skillchain block)
+//cw scbarsize 18      countdown bar
 //cw scsize 34         SC Bonus float
 ```
 
@@ -275,7 +275,7 @@ immediately.
 | `//cw mb on\|off` | on | Show MB popups at all |
 | `//cw mbparty on\|off` | on | Also show party members' bursts (named). Off: only yours |
 | `//cw mbsize <n>` | 24 | Popup text size |
-| `//cw mbx <px>` / `//cw mby <px>` | 95 / −31 | Popup offset from the SC bar (or drag it) |
+| `//cw mbx <px>` / `//cw mby <px>` | 95 / −31 | Popup offset from the countdown bar (or drag it) |
 | `//cw testmb [damage]` | | Show a sample popup |
 
 MB tallies on the party panel are always collected, whatever `mb` and
@@ -285,7 +285,7 @@ MB tallies on the party panel are always collected, whatever `mb` and
 
 | Command | Default | What it does |
 |---|---|---|
-| `//cw scbar on\|off` | on | The whole skillchain HUD (bar, counter, chain line, closer list) |
+| `//cw scbar on\|off` | on | The whole skillchain block |
 | `//cw schud on\|off` | on | On: shows whenever your target has a chain. Off: only while the banner is showing |
 | `//cw sc <part>` | see below | Turn one part on/off **for your current job** |
 | `//cw sc color` | on | Coloured skillchain names in the properties line and closer list |
@@ -294,17 +294,14 @@ MB tallies on the party panel are always collected, whatever `mb` and
 | `//cw scbardelay <sec>` | 3 | Wait time when a WS has no known delay |
 | `//cw scbarwidth <chars>` | 18 | Bar length in characters (min 6) |
 | `//cw scbarsize <n>` | 18 | Bar size |
-| `//cw scbargap <px>` | 132 | Bar distance below the banner |
+| `//cw scbargap <px>` | 132 | Skillchain block's top edge, below the banner (or drag it) |
 | `//cw scbarlabelsize <n>` | 15 | `SC Window:` text size |
 | `//cw scbarlabeloverlap <px>` | 20 | How far the `SC Window:` text sits below the bar |
 | `//cw scchaincountersize <n>` | 18 | `Chain: N` size |
 | `//cw scchaincountergap <px>` | 6 | Gap between `GO!!` and `Chain: N` |
-| `//cw scinfogap <px>` | 175 | Chain line distance below the banner |
-| `//cw scdetail on\|off` | on | The Step / properties / closer list block, on every job. Off keeps just the bar, timer, chain counter and chain line |
+| `//cw scdetail on\|off` | on | The top part of the block (Step, properties, closer list), on every job. Off keeps just the bar and timer |
 | `//cw scdetailsize <n>` | 13 | Closer list text size |
-| `//cw scdetailgap <px>` | 30 | Closer list distance below the chain line |
 | `//cw testbar` | | Sample WS plus a 10-second Wait → GO bar |
-| `//cw testsc <name>` | | Show the chain line for a skillchain (e.g. `fusion`, `radiance`) for 5 seconds |
 
 **Per-job parts** (`//cw sc <part>`), as in SkillChains. Each one remembers a
 separate on/off for every job:
@@ -314,7 +311,7 @@ separate on/off for every job:
 | `timer` | all | Seconds after `Wait`/`GO!!`/`Burst!` |
 | `step` | all | The `Step: N → WS` line |
 | `props` | all | The `[properties] (elements)` line |
-| `burst` | all | Burst phase after a chain closes, and the elements on the chain line |
+| `burst` | all | Burst phase after a chain closes, and burst elements on the properties line |
 | `weapon` | all | Your weapon skills in the closer list |
 | `spell` | SCH, BLU | Immanence elements (SCH) or blue magic (BLU) in the closer list |
 | `pet` | BST, SMN | Pet moves in the closer list (while your pet is out) |
@@ -364,7 +361,7 @@ separate on/off for every job:
 | `//cw testmassive` | Torcleaver, 99,999 (CRANKED) |
 | `//cw testcrankedstreak` | three 99,999s (CRANKED x N) |
 | `//cw testwhiff` | a miss |
-| `//cw testbar`, `testsc <name>`, `testmb [dmg]`, `testparty` | see the sections above |
+| `//cw testbar`, `testmb [dmg]`, `testparty` | see the sections above |
 
 ### Maintenance
 
@@ -441,14 +438,8 @@ pixels.
 | `sc_bar_burst_window` | 0 | Chain reset window for two different actions (0 = off) |
 | `sc_chain_counter_enabled` | true | **File only.** Show `Chain: N` |
 | `sc_chain_counter_size`, `sc_chain_counter_gap` | 18, 6 | `Chain: N` size and gap |
-| `sc_chain_info_enabled` | true | **File only.** Show the chain line |
-| `sc_chain_info_size` | 20 | **File only.** Chain line size |
-| `sc_chain_info_gap`, `sc_chain_info_offset_x` | 175, 0 | Chain line position |
-| `sc_chain_info_offset_y` | 4 | **File only.** Extra vertical nudge |
-| `sc_chain_info_duration` | 5 | **File only.** How long `//cw testsc` holds the chain line |
-| `sc_chain_info_shake_duration`, `sc_chain_info_shake_strength` | 0.75, 8 | **File only.** Radiance/Umbra shake |
-| `sc_detail_enabled` | true | Show the Step / properties / closer list block (`//cw scdetail`) |
-| `sc_detail_size`, `sc_detail_gap`, `sc_detail_offset_x` | 13, 30, 0 | Closer list size and position |
+| `sc_detail_enabled` | true | Show the top part of the block: Step / properties / closer list (`//cw scdetail`) |
+| `sc_detail_size` | 13 | Closer list size |
 | `sc_detail_font` | Consolas | **File only.** Closer list font (keep it monospaced so columns line up) |
 | `sc_color` | true | Coloured skillchain names |
 | `sc_aeonic` | false | Assume others have Aeonic weapons |
@@ -462,7 +453,7 @@ pixels.
 | `mb_party` | true | Include party members' bursts |
 | `mb_max_lines` | 4 | **File only.** How many simultaneous bursts stack |
 | `mb_size` | 24 | Text size |
-| `mb_offset_x`, `mb_offset_y` | 95, −31 | Position relative to the SC bar |
+| `mb_offset_x`, `mb_offset_y` | 95, −31 | Position relative to the countdown bar |
 | `mb_duration` | 3.0 | **File only.** Seconds on screen |
 | `mb_fade_in_duration`, `mb_fade_out_duration` | 0.15, 0.35 | **File only.** Fade times |
 | `mb_shake_duration`, `mb_shake_strength` | 0.5, 5 | **File only.** Shake when a burst lands |
@@ -491,6 +482,11 @@ pixels.
 `sc_anchor_ratio` remain in the file so 2.0 settings load cleanly, but
 nothing reads them. Chains now close after step 5 or at Lv.4, as in
 SkillChains.
+
+The chain line ("Chain 2: Light (…)") was removed; the skillchain block shows
+the same information. Any `sc_chain_info_*` or `sc_detail_gap` keys left in
+an older settings file are ignored. `//cw testsc`, `//cw scinfogap` and
+`//cw scdetailgap` now just say so.
 
 ---
 
@@ -553,7 +549,7 @@ Each part has a coloured box and a name tag; hover to highlight one. Chat
 lists every part when you enter move mode. See section 4 for why parts
 overlap by default.
 
-**The party panel or closer list is off screen, or my layout is a mess.**
+**The party panel or skillchain block is off screen, or my layout is a mess.**
 `//cw resetpos` puts everything back in its default place without touching
 your other settings. Or use `//cw move` and drag parts back.
 

@@ -42,77 +42,6 @@ end
 -- Skillchain colours / element strings (unchanged from CrankWatch 2.0)
 ---------------------------------------------------------------------------
 
-local SC_ELEMENT_COLORS = {
-    Fire     = {255,  70,  70},
-    Ice      = {120, 220, 255},
-    Water    = { 45,  95, 255},
-    Darkness = {180, 100, 255},
-    Light    = {245, 245, 220},
-    Thunder  = {205, 145, 255},
-    Wind     = {100, 255, 100},
-    Earth    = {230, 210,  80},
-}
-
-local SC_ELEMENTS = {
-    Liquefaction  = 'Fire',
-    Induration    = 'Ice',
-    Reverberation = 'Water',
-    Detonation    = 'Wind',
-    Scission      = 'Earth',
-    Impaction     = 'Thunder',
-    Transfixion   = 'Light',
-    Compression   = 'Dark.',
-    Fusion        = 'Fire/Light',
-    Fragmentation = 'Wind/Thund.',
-    Distortion    = 'Ice/Water',
-    Gravitation   = 'Earth/Dark.',
-    Light         = 'Fire/Wind/Thund./Light',
-    Darkness      = 'Earth/Water/Ice/Dark.',
-    Radiance      = 'Fire/Wind/Thund./Light',
-    Umbra         = 'Earth/Water/Ice/Dark.',
-}
-M.SC_ELEMENTS = SC_ELEMENTS
-
-M.SC_NAMES = {
-    liquefaction='Liquefaction', induration='Induration', reverberation='Reverberation',
-    detonation='Detonation', scission='Scission', impaction='Impaction',
-    transfixion='Transfixion', compression='Compression', fusion='Fusion',
-    fragmentation='Fragmentation', distortion='Distortion', gravitation='Gravitation',
-    light='Light', darkness='Darkness', radiance='Radiance', umbra='Umbra',
-}
-
-local function blend(...)
-    local r, g, b, n = 0, 0, 0, 0
-    for _, name in ipairs({...}) do
-        local c = SC_ELEMENT_COLORS[name]
-        if c then r, g, b, n = r + c[1], g + c[2], b + c[3], n + 1 end
-    end
-    if n == 0 then return 255, 255, 255 end
-    return math.floor(r / n), math.floor(g / n), math.floor(b / n)
-end
-
-function M.sc_color(name)
-    local key = tostring(name or ''):lower():gsub('%s+', '')
-    local C = SC_ELEMENT_COLORS
-    if key:find('radiance') then return unpack(C.Light) end
-    if key:find('umbra') then return unpack(C.Darkness) end
-    if key:find('darkness') then return unpack(C.Darkness) end
-    if key:find('light') then return unpack(C.Light) end
-    if key:find('fusion') then return blend('Fire', 'Light') end
-    if key:find('fragmentation') then return blend('Wind', 'Thunder') end
-    if key:find('distortion') then return blend('Ice', 'Water') end
-    if key:find('gravitation') then return blend('Earth', 'Darkness') end
-    if key:find('liquefaction') then return unpack(C.Fire) end
-    if key:find('scission') then return unpack(C.Earth) end
-    if key:find('reverberation') then return unpack(C.Water) end
-    if key:find('detonation') then return unpack(C.Wind) end
-    if key:find('induration') then return unpack(C.Ice) end
-    if key:find('impaction') then return unpack(C.Thunder) end
-    if key:find('transfixion') then return unpack(C.Light) end
-    if key:find('compression') then return unpack(C.Darkness) end
-    return 255, 255, 255
-end
-
 function M.damage_style(dmg, whiff, settings, cranked_text)
     if whiff then
         return 180, 180, 180, settings.stroke_width, 'LOL'
@@ -147,8 +76,7 @@ end
 ---------------------------------------------------------------------------
 
 M.BANNER = {'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}
-M.SC = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter',
-        'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements', 'sc_detail'}
+M.SC = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter', 'sc_detail'}
 
 -- opts: settings, texts (library), clock
 function M.new(opts)
@@ -181,12 +109,6 @@ function M.new(opts)
     self.sc_target = nil
     self.sc_bar_shake_start = 0
     self.chain_counter_visible = false
-    self.chain_info_visible, self.chain_info_fading = false, false
-    self.chain_info_fade_start = 0
-    self.chain_info_key = nil
-    self.chain_info_elements = ''
-    self.chain_info_color = {255, 255, 255}
-    self.chain_info_shake_start = 0
     self.detail_value = ''
 
     -- mb state
@@ -209,9 +131,6 @@ function M.new(opts)
     self:obj('sc_bar_label', s.sc_bar_label_size or 15)
     self:obj('sc_bar_status', s.sc_bar_label_size or 15)
     self:obj('sc_chain_counter', s.sc_chain_counter_size or 18)
-    self:obj('sc_chain_info', s.sc_chain_info_size or 20)
-    self:obj('sc_chain_info_name', s.sc_chain_info_size or 20)
-    self:obj('sc_chain_info_elements', s.sc_chain_info_size or 20)
     self:obj('sc_detail', s.sc_detail_size or 13)
     self:obj('mb', s.mb_size or 18)
     self:obj('flair', s.flair_size)
@@ -299,9 +218,6 @@ function Hud:apply_alpha(alpha)
             set_alpha(self.sc_detail, alpha)
         end
         if self.chain_counter_visible then set_alpha(self.sc_chain_counter, alpha) end
-        if self.chain_info_visible and not self.chain_info_fading then
-            set_alpha(self.sc_chain_info, alpha); set_alpha(self.sc_chain_info_name, alpha); set_alpha(self.sc_chain_info_elements, alpha)
-        end
     end
 
     if alpha <= 0 then
@@ -349,10 +265,48 @@ local function shake_offset(start, duration, strength, freq, clock)
     return math.floor(math.sin(t * freq) * strength * (1 - t)), start
 end
 
+-- The skillchain block moves as one unit, top to bottom:
+--     closer list (Step / properties / what to use next)  - //cw scdetail
+--     red/green bar
+--     "SC Window: GO!! 4.2  Chain: N"
+-- sc_bar_gap / sc_bar_offset_x place the block's top-left corner.
+local function text_height(o, size)
+    local _, h = o:extents()
+    h = tonumber(h) or 0
+    if h <= 0 then h = math.floor((size or 12) * 1.4) end
+    return h
+end
+
+-- Height of the closer list plus its gap (0 when it isn't shown).
+function Hud:block_detail_height()
+    if not (self:detail_enabled() and self.detail_value ~= '') then return 0 end
+    return text_height(self.sc_detail, self.settings.sc_detail_size or 13) + 4
+end
+
+-- Height of the whole block from its top edge.
+function Hud:block_height()
+    local s = self.settings
+    return self:block_detail_height() + (s.sc_bar_label_overlap or 20)
+        + text_height(self.sc_bar_label, s.sc_bar_label_size or 15)
+end
+
 function Hud:position_sc_bar()
     local s = self.settings
     local now = self.clock()
     local y = s.center_y + (s.sc_bar_gap or ((s.avg_gap or 99) + 34))
+    do
+        -- y is the block's top. Keep the whole block on screen: flip it
+        -- above the banner if it would run off the bottom.
+        local _, sh = M.screen()
+        local dragging = self.drag and self.drag.part.name == 'sc_bar'
+        local total = self:block_height()
+        if y + total > sh and not dragging then
+            y = math.floor(s.center_y - total - 8)
+        end
+        y = math.max(0, y)
+        self.block_top = y
+        y = y + self:block_detail_height()   -- the bar sits under the closer list
+    end
     local bar_w = extents(self.sc_bar)
     local x = self.ws:pos() + (s.sc_bar_offset_x or 0)
 
@@ -370,24 +324,6 @@ function Hud:position_sc_bar()
     self.sc_chain_counter:pos(math.floor(lx + lw + sw + (s.sc_chain_counter_gap or 6)), ly)
 end
 
-function Hud:chain_info_y()
-    local s = self.settings
-    return s.center_y + (s.sc_chain_info_gap or 175) + (s.sc_chain_info_offset_y or 4)
-end
-
-function Hud:position_chain_info()
-    local s = self.settings
-    local x = self.ws:pos() + (s.sc_chain_info_offset_x or 0)
-    local y = self:chain_info_y()
-    local dx, keep = shake_offset(self.chain_info_shake_start, s.sc_chain_info_shake_duration or 0.75, s.sc_chain_info_shake_strength or 8, 80, self.clock())
-    self.chain_info_shake_start = keep
-    x = math.floor(x + dx)
-    self.sc_chain_info:pos(x, y)
-    local nx = math.floor(x + extents(self.sc_chain_info) + 4)
-    self.sc_chain_info_name:pos(nx, y)
-    self.sc_chain_info_elements:pos(math.floor(nx + extents(self.sc_chain_info_name)), y)
-end
-
 -- Screen size from Windower (falls back to 1080p).
 function M.screen()
     local ok, ws = pcall(function() return windower.get_windower_settings() end)
@@ -397,20 +333,11 @@ function M.screen()
     return 1920, 1080
 end
 
--- Closer list sits under the chain info line. If that would run off the
--- bottom of the screen, it flips above the Last WS line instead.
+-- Closer list: top of the skillchain block, left-aligned with the bar.
 function Hud:position_detail()
+    local x = self.sc_bar:pos()
     local s = self.settings
-    local _, sh = M.screen()
-    local _, h = self.sc_detail:extents()
-    h = tonumber(h) or 0
-    local x = math.floor(self.ws:pos() + (s.sc_detail_offset_x or 0))
-    local y = math.floor(self:chain_info_y() + (s.sc_detail_gap or 30))
-    local dragging = self.drag and self.drag.part.name == 'detail'
-    if y + h > sh and not dragging then
-        y = math.floor(s.center_y - (s.sc_detail_gap or 30) - h)
-    end
-    self.sc_detail:pos(x, math.max(0, y))
+    self.sc_detail:pos(math.floor(x), math.floor(self.block_top or (s.center_y + (s.sc_bar_gap or 132))))
 end
 
 function Hud:position_mb()
@@ -464,7 +391,6 @@ function Hud:update_display()
     end
     self:position_avg_line()
     if self.sc_bar_active then self:position_sc_bar() end
-    if self.chain_info_visible then self:position_chain_info() end
     if self.sc_bar_active then self:position_detail() end
     if self.mb_visible then self:position_mb() end
     if self.flair_visible and not self.flair_fading then
@@ -695,58 +621,16 @@ function Hud:set_party_lines(text)
 end
 
 ---------------------------------------------------------------------------
--- SC HUD
+-- SC HUD (the skillchain block)
 ---------------------------------------------------------------------------
-
-function Hud:hide_chain_info()
-    self.chain_info_visible, self.chain_info_fading = false, false
-    self.chain_info_fade_start = 0
-    self.chain_info_key = nil
-    self.sc_chain_info:hide(); self.sc_chain_info_name:hide(); self.sc_chain_info_elements:hide()
-end
-
-function Hud:fade_chain_info()
-    -- //cw testsc holds the line for sc_chain_info_duration seconds.
-    if self.chain_info_hold_until and self.clock() < self.chain_info_hold_until then return end
-    if self.chain_info_visible and not self.chain_info_fading then
-        self.chain_info_fading = true
-        self.chain_info_fade_start = self.clock()
-    end
-end
-
-function Hud:show_chain_info(chain_num, sc_name, show_elements)
-    local s = self.settings
-    if not s.sc_bar_enabled or not s.sc_chain_info_enabled then return end
-    sc_name = tostring(sc_name or 'Skillchain')
-    local r, g, b = M.sc_color(sc_name)
-    local elements = show_elements ~= false and SC_ELEMENTS[sc_name] or nil
-    self.chain_info_elements = elements and (' (%s)'):format(elements) or ''
-    self.chain_info_color = {r, g, b}
-    local key = sc_name:lower()
-    self.chain_info_shake_start = (key == 'radiance' or key == 'umbra') and self.clock() or 0
-
-    local a = self:sc_alpha()
-    local font, size = s.font or 'Highwind', s.sc_chain_info_size or 20
-    local function style(o, txt, cr, cg, cb)
-        o:text(txt); o:font(font); o:size(size); o:color(cr, cg, cb)
-        o:stroke_width(s.stroke_width); set_alpha(o, a)
-    end
-    style(self.sc_chain_info, 'Chain ' .. tostring(math.max(1, tonumber(chain_num) or 1)) .. ':', 255, 255, 255)
-    style(self.sc_chain_info_name, sc_name, r, g, b)
-    style(self.sc_chain_info_elements, self.chain_info_elements, 255, 255, 255)
-
-    self.chain_info_visible, self.chain_info_fading = true, false
-    self.chain_info_fade_start = 0
-    self:position_chain_info()
-    if self:sc_allowed() then
-        self.sc_chain_info:show(); self.sc_chain_info_name:show()
-        if self.chain_info_elements ~= '' then self.sc_chain_info_elements:show() else self.sc_chain_info_elements:hide() end
-    end
-end
 
 -- //cw scdetail: the Step / properties / closer list block.
 function Hud:detail_enabled()
     return self.settings.sc_detail_enabled ~= false
+end
+
+function Hud:parts()
+    return M.PARTS
 end
 
 -- Move mode only shows (and lets you drag) parts that are switched on.
@@ -757,13 +641,12 @@ function Hud:part_enabled(part)
     if name == 'sc_bonus' then return s.sc_enabled ~= false end
     if name == 'party' then return s.party_panel == true end
     if name == 'sc_bar' then return s.sc_bar_enabled ~= false end
-    if name == 'chain_info' then return s.sc_bar_enabled ~= false and s.sc_chain_info_enabled ~= false end
-    if name == 'detail' then return s.sc_bar_enabled ~= false and self:detail_enabled() end
     return true   -- banner, damage, average and flair are always on
 end
 
 -- Some parts are groups; a member can be off on its own.
 function Hud:obj_enabled(n)
+    if n == 'sc_detail' then return self:detail_enabled() end
     if n == 'sc_chain_counter' then return self.settings.sc_chain_counter_enabled ~= false end
     if n == 'avg_trend' then return self.banner.trend ~= '' end
     return true
@@ -799,7 +682,6 @@ function Hud:render_sc(view)
     local s = self.settings
     if not s.sc_bar_enabled or not view then
         if self.sc_bar_active then self:hide_sc_group() end
-        self:fade_chain_info()
         return
     end
 
@@ -849,18 +731,6 @@ function Hud:render_sc(view)
     if self.chain_counter_visible then
         self.sc_chain_counter:text('Chain: ' .. tostring(view.chain))
         self.sc_chain_counter:color(255, 255, 255)
-    end
-
-    -- Chain info: re-render when target or step changes.
-    local key = tostring(view.target_id) .. ':' .. tostring(view.step)
-    if view.sc_name then
-        if key ~= self.chain_info_key then
-            self:show_chain_info(view.chain, view.sc_name, view.show_burst)
-            self.chain_info_key = key
-        end
-    elseif self.chain_info_visible then
-        self:fade_chain_info()
-        self.chain_info_key = nil
     end
 
     -- Detail block (Step / properties / closers)
@@ -970,31 +840,6 @@ function Hud:update_frame(now)
         end
     end
 
-    -- Chain info (fade / shake)
-    if self.chain_info_visible then
-        if not self:sc_allowed() then
-            self.sc_chain_info:hide(); self.sc_chain_info_name:hide(); self.sc_chain_info_elements:hide()
-        else
-            self:position_chain_info()
-            local base = self:sc_alpha()
-            local a = base
-            if self.chain_info_fading then
-                local t = (now - self.chain_info_fade_start) / 0.75
-                if t >= 1 then
-                    self:hide_chain_info()
-                    a = nil
-                else
-                    a = math.floor(base * (1 - t))
-                end
-            end
-            if a then
-                set_alpha(self.sc_chain_info, a); set_alpha(self.sc_chain_info_name, a); set_alpha(self.sc_chain_info_elements, a)
-                self.sc_chain_info:show(); self.sc_chain_info_name:show()
-                if self.chain_info_elements ~= '' then self.sc_chain_info_elements:show() else self.sc_chain_info_elements:hide() end
-            end
-        end
-    end
-
     -- Flair float / shrink
     if self.flair_visible and self.flair_fading then
         local t = (now - self.flair_fade_start) / math.max(s.flair_fade_duration, 0.01)
@@ -1099,10 +944,8 @@ M.PARTS = {
     {name = 'mb',         label = 'MB popup',      color = {255, 80, 200},  objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
     {name = 'sc_bonus',   label = 'SC Bonus',      color = {0, 200, 200},   objs = {'sc'}, x = 'sc_offset_x', y = 'sc_offset_y'},
     {name = 'flair',      label = 'Hit flair',     color = {255, 140, 0},   objs = {'flair'}, x = 'flair_offset_x', y = 'flair_gap'},
-    {name = 'chain_info', label = 'Chain line',    color = {160, 90, 255},  objs = {'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements'}, x = 'sc_chain_info_offset_x', y = 'sc_chain_info_gap'},
-    {name = 'detail',     label = 'Closer list',   color = {60, 120, 255},  objs = {'sc_detail'}, x = 'sc_detail_offset_x', y = 'sc_detail_gap'},
     {name = 'party',      label = 'Party panel',   color = {0, 170, 90},    objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
-    {name = 'sc_bar',     label = 'SC bar',        color = {40, 200, 40},   objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
+    {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_detail', 'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
     {name = 'avg',        label = 'Average line',  color = {200, 200, 0},   objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
     {name = 'dmg',        label = 'Damage line',   color = {230, 60, 60},   objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
     {name = 'banner',     label = 'WHOLE HUD (drag here to move everything)', color = {120, 120, 120}, objs = {'ws'}, x = 'center_x', y = 'center_y'},
@@ -1185,6 +1028,16 @@ end
 function Hud:highlight_parts(on)
     local s = self.settings
     for _, part in ipairs(M.PARTS) do
+        local tag = self.by_name['tag_' .. part.name]
+        tag:bg_visible(false)
+        tag:hide()
+    end
+    if not on then
+        for _, part in ipairs(M.PARTS) do
+            for _, n in ipairs(part.objs) do set_bg(self.by_name[n], false) end
+        end
+    end
+    for _, part in ipairs(self:parts()) do
         local hovered = self.hover == part.name or (self.drag and self.drag.part.name == part.name)
         for _, n in ipairs(part.objs) do
             set_bg(self.by_name[n], on, part.color, hovered and 170 or 80)
@@ -1192,6 +1045,9 @@ function Hud:highlight_parts(on)
         local tag = self.by_name['tag_' .. part.name]
         if on and self:part_enabled(part) then
             local first = self.by_name[part.objs[1]]
+            if part.name == 'sc_bar' and not (self:detail_enabled() and self.detail_value ~= '') then
+                first = self.sc_bar
+            end
             local x, y = first:pos()
             tag:text(' ' .. part.label .. ' ')
             tag:font('Consolas')
@@ -1213,8 +1069,9 @@ end
 -- Names of the parts currently draggable, top of the HUD first.
 function Hud:legend()
     local names = {}
-    for i = #M.PARTS, 1, -1 do
-        local part = M.PARTS[i]
+    local parts = self:parts()
+    for i = #parts, 1, -1 do
+        local part = parts[i]
         if self:part_enabled(part) then
             names[#names + 1] = (part.label:gsub(' %(.*%)', ''))
         end
@@ -1255,7 +1112,6 @@ function Hud:start_move()
     self.sc:text('SC Bonus: 12,345!!'); self.sc:size(s.sc_size or s.flair_size); self.sc:color(120, 255, 255)
     self.mb_lines = {'MB: 40,000!!', 'Mage MB: 35,120!!'}
     self.mb:text(tconcat(self.mb_lines, '\n')); self.mb:size(s.mb_size or 18); self.mb:color(255, 140, 255)
-    self.chain_info_key = nil
     self:render_sc(self:move_view())
     self:render_move()
 end
@@ -1264,13 +1120,13 @@ end
 function Hud:render_move()
     local s = self.settings
     self:render_sc(self:move_view())
-    self.sc_bar_shake_start, self.chain_info_shake_start, self.mb_shake_start = 0, 0, 0
+    self.sc_bar_shake_start, self.mb_shake_start = 0, 0
     self:update_display()
     self:position_flair(s.center_y + s.flair_gap)
     self:position_sc_line(math.floor(s.center_y + (s.sc_gap or s.flair_gap or 118) + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
     self:position_mb()
     self:position_party()
-    for _, part in ipairs(M.PARTS) do
+    for _, part in ipairs(self:parts()) do
         for _, n in ipairs(part.objs) do
             local o = self.by_name[n]
             if not self:part_enabled(part) or not self:obj_enabled(n) then
@@ -1301,7 +1157,6 @@ function Hud:stop_move()
     self.sc_visible, self.sc_fading = false, false
     self.mb_visible, self.mb_lines = false, {}
     self:hide_sc_group()
-    self:hide_chain_info()
     self:apply_damage_style()
     self:apply_avg_style(b.avg_raw)
     self.fade_state = 'hidden'
@@ -1319,7 +1174,7 @@ local function hit(o, x, y)
 end
 
 function Hud:part_at(x, y)
-    for _, part in ipairs(M.PARTS) do
+    for _, part in ipairs(self:parts()) do
         for _, n in ipairs(part.objs) do
             if hit(self.by_name[n], x, y) then return part end
         end
@@ -1338,9 +1193,9 @@ function Hud:mouse(type, x, y)
         local sx, sy = s[part.x] or 0, s[part.y] or 0
         -- Closer list and party panel can be auto-flipped to stay on screen;
         -- start the drag from where they are actually drawn.
-        if part.name == 'detail' then
-            local _, py = self.sc_detail:pos()
-            sy = py - self:chain_info_y()
+        if part.name == 'sc_bar' then
+            -- start from where the block is drawn (it may be flipped)
+            sy = (self.block_top or (s.center_y + sy)) - s.center_y
         elseif part.name == 'party' then
             local px, py = self.party:pos()
             sx, sy = px - s.center_x, py - s.center_y
@@ -1390,8 +1245,6 @@ function Hud:hide_all()
     self.alpha_current = 0
     self.sc_bar_active = false
     self.chain_counter_visible = false
-    self.chain_info_visible, self.chain_info_fading = false, false
-    self.chain_info_key = nil
     self.mb_visible = false
     self.sc_visible, self.sc_fading = false, false
     self.flair_visible, self.flair_fading = false, false
@@ -1406,7 +1259,7 @@ function Hud:apply_all_visual_settings()
     self.sc_bar:font(s.sc_bar_font or 'Consolas')
     self.sc_detail:font(s.sc_detail_font or 'Consolas')
     self.party:font(s.party_panel_font or 'Consolas')
-    for _, part in ipairs(M.PARTS) do
+    for _, part in ipairs(self:parts()) do
         local tag = self.by_name['tag_' .. part.name]
         tag:font('Consolas'); tag:size(TAG_SIZE)
     end
@@ -1416,8 +1269,7 @@ function Hud:apply_all_visual_settings()
         avg_value = s.avg_size, avg_trend = s.avg_size, sc = s.sc_size or s.flair_size,
         sc_bar = s.sc_bar_size or s.avg_size, sc_bar_label = s.sc_bar_label_size or 15,
         sc_bar_status = s.sc_bar_label_size or 15, sc_chain_counter = s.sc_chain_counter_size or 18,
-        sc_chain_info = s.sc_chain_info_size or 20, sc_chain_info_name = s.sc_chain_info_size or 20,
-        sc_chain_info_elements = s.sc_chain_info_size or 20, sc_detail = s.sc_detail_size or 13,
+        sc_detail = s.sc_detail_size or 13,
         mb = s.mb_size or 22, flair = s.flair_size, party = s.party_panel_size or 13,
     }
     for name, size in pairs(sizes) do self.by_name[name]:size(size) end
@@ -1435,10 +1287,6 @@ function Hud:apply_all_visual_settings()
     self.sc_bar_label:color(255, 255, 255)
     self.sc_bar_status:color(80, 255, 80)
     self.sc_chain_counter:color(255, 255, 255)
-    self.sc_chain_info:color(255, 255, 255)
-    local c = self.chain_info_color
-    self.sc_chain_info_name:color(c[1], c[2], c[3])
-    self.sc_chain_info_elements:color(255, 255, 255)
     self.sc_detail:color(255, 255, 255)
     self.party:color(255, 255, 255)
     self:apply_trend_style()

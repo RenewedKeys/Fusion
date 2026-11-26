@@ -82,13 +82,6 @@ local defaults = {
     sc_chain_counter_enabled = true,
     sc_chain_counter_size = 18,
     sc_chain_counter_gap = 6,
-    sc_chain_info_enabled = true,
-    sc_chain_info_size = 20,
-    sc_chain_info_gap = 175,
-    sc_chain_info_duration = 5.0, -- how long //cw testsc holds the chain line
-    sc_chain_info_offset_y = 4,
-    sc_chain_info_shake_duration = 0.75,
-    sc_chain_info_shake_strength = 8,
     mb_enabled = true,
     mb_size = 24,
     mb_duration = 3.0,
@@ -110,15 +103,12 @@ local defaults = {
     sc_detail_enabled = true,   -- //cw scdetail: Step / properties / closer list block
     sc_detail_size = 13,
     sc_detail_font = 'Consolas',
-    sc_detail_gap = 30,
-    sc_detail_offset_x = 0,
     -- Horizontal offsets set by //cw move (vertical ones reuse the 2.0 gaps).
     dmg_offset_x = 0,
     avg_offset_x = 0,
     flair_offset_x = 0,
     sc_offset_x = 0,
     sc_bar_offset_x = 0,
-    sc_chain_info_offset_x = 0,
     mb_party = true,            -- also pop MBs cast by party members (with their name)
     mb_max_lines = 4,           -- simultaneous MBs stack up to this many lines
     Show = sc_engine.default_show(),
@@ -588,8 +578,6 @@ local POSITION_KEYS = {
     'flair_offset_x', 'flair_offset_y', 'flair_anchor_ratio',
     'sc_gap', 'sc_offset_x', 'sc_offset_y',
     'sc_bar_gap', 'sc_bar_offset_x', 'sc_bar_label_overlap', 'sc_chain_counter_gap',
-    'sc_chain_info_gap', 'sc_chain_info_offset_x', 'sc_chain_info_offset_y',
-    'sc_detail_gap', 'sc_detail_offset_x',
     'mb_offset_x', 'mb_offset_y',
     'party_panel_offset_x', 'party_panel_offset_y',
 }
@@ -608,17 +596,16 @@ local function reset_positions()
     end
 end
 
-local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | testmassive | testsc <skillchain> | testbar | testmb [dmg] | testcrankedstreak'
+local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | testmassive | testbar | testmb [dmg] | testcrankedstreak'
     .. ' | show | hide | layout | resetpos | pos x y | size 36 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
     .. ' | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
     .. ' | scsize 34 | scfade 4 | scfloat 28 | scoffset 32 | scbar on|off | scbargap 132 | scbarwidth 18 | scbarsize 18 | scbardelay 3 | scbarlabelsize 15 | scbarlabeloverlap 20'
-    .. ' | scchaincountersize 18 | scchaincountergap 6 | scinfogap 175 | scdetail on|off | scdetailsize 13 | scdetailgap 30 | schud on|off | scburst 0'
+    .. ' | scchaincountersize 18 | scchaincountergap 6 | scdetail on|off | scdetailsize 13 | schud on|off | scburst 0'
     .. ' | sc burst|pet|props|spell|step|timer|weapon|color | scaeonic on|off'
     .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
     .. ' | bannermode self|party | party on|off | party fade on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
     .. ' | blacklist add|remove|list <ws> | stats | autoreset on|off | reset [ws|mb|all] | factoryreset | debug'
 
-local SC_TEST_NAMES = ui_hud.SC_NAMES
 local SC_SHOW_KEYS = {burst = true, pet = true, props = true, spell = true, step = true, timer = true, weapon = true}
 
 windower.register_event('addon command', function(cmd, ...)
@@ -643,20 +630,8 @@ windower.register_event('addon command', function(cmd, ...)
         test_commit('Torcleaver', '99999')
         test_commit('Torcleaver', '99999')
 
-    elseif cmd == 'testsc' then
-        local requested = tostring(arg1 or ''):lower():gsub('_', ''):gsub('%s+', '')
-        local sc_name = SC_TEST_NAMES[requested]
-        if not sc_name then
-            chat('Usage: //cw testsc <skillchain name>')
-            chat('Valid skillchains: Liquefaction, Induration, Reverberation, Detonation, Scission, Impaction, Transfixion, Compression, Fusion, Fragmentation, Distortion, Gravitation, Light, Darkness, Radiance, Umbra.')
-        elseif not settings.sc_bar_enabled then
-            chat('Skillchain HUD is disabled. Use //cw scbar on before testing.')
-        else
-            hud:force_visible()
-            hud:show_chain_info(1, sc_name, true)
-            hud.chain_info_hold_until = os.clock() + (settings.sc_chain_info_duration or 5)
-            chat('Testing skillchain display: ' .. sc_name .. '.')
-        end
+    elseif cmd == 'testsc' or cmd == 'scinfogap' or cmd == 'scdetailgap' then
+        chat('The chain line was removed: the skillchain block (closer list + bar) shows the chain. Move the block with //cw move or //cw scbargap.')
 
     elseif cmd == 'testbar' then
         test_commit('Savage Blade', '54321')
@@ -685,8 +660,6 @@ windower.register_event('addon command', function(cmd, ...)
         number_setting(arg1, 'sc_chain_counter_size', 'SC chain counter size', revisual)
     elseif cmd == 'scchaincountergap' then
         number_setting(arg1, 'sc_chain_counter_gap', 'SC chain counter offset', relayout)
-    elseif cmd == 'scinfogap' then
-        number_setting(arg1, 'sc_chain_info_gap', 'SC info gap', relayout)
     elseif cmd == 'scdetail' then
         on_off(arg1, 'sc_detail_enabled', 'Skillchain detail (Step / properties / closer list)', function()
             engine:invalidate()
@@ -694,8 +667,6 @@ windower.register_event('addon command', function(cmd, ...)
         end)
     elseif cmd == 'scdetailsize' then
         number_setting(arg1, 'sc_detail_size', 'SC detail size', revisual)
-    elseif cmd == 'scdetailgap' then
-        number_setting(arg1, 'sc_detail_gap', 'SC detail gap', relayout)
     elseif cmd == 'scburst' then
         number_setting(arg1, 'sc_bar_burst_window', 'Simultaneous-WS reset window (0 = off)', nil, function(v) return math.max(0, v) end)
 
@@ -816,11 +787,8 @@ windower.register_event('addon command', function(cmd, ...)
         end
 
     elseif cmd == 'scbar' then
-        on_off(arg1, 'sc_bar_enabled', 'Skillchain HUD (bar, chain tracker, chain info, closers)', function()
-            if not settings.sc_bar_enabled then
-                hud:hide_sc_group()
-                hud:hide_chain_info()
-            end
+        on_off(arg1, 'sc_bar_enabled', 'Skillchain block (closer list, bar, timer)', function()
+            if not settings.sc_bar_enabled then hud:hide_sc_group() end
         end)
     elseif cmd == 'schud' then
         on_off(arg1, 'sc_hud_independent', 'SC HUD independent of the WS banner')
