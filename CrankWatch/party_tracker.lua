@@ -28,6 +28,7 @@ function M.new(opts)
     self.settings = opts.settings or {}
     self.api = opts.api or (windower and windower.ffxi)
     self.stats = {}
+    self.mb_stats = {}
     self.order = 0
     return self
 end
@@ -261,9 +262,46 @@ function Tracker:sorted()
     return list
 end
 
-function Tracker:reset()
-    self.stats = {}
-    self.order = 0
+---------------------------------------------------------------------------
+-- Magic Burst tallies (separate board from WS stats)
+---------------------------------------------------------------------------
+
+-- Record one Magic Burst. Returns the caster's MB entry.
+function Tracker:record_mb(info, damage, spell_name)
+    if not info then return nil end
+    local m = self.mb_stats[info.id]
+    if not m then
+        self.order = self.order + 1
+        m = {id = info.id, name = info.name, kind = info.kind, order = self.order,
+            total = 0, count = 0, peak = 0, peak_spell = nil}
+        self.mb_stats[info.id] = m
+    end
+    m.name = info.name or m.name
+    damage = tonumber(damage) or 0
+    m.total = m.total + damage
+    m.count = m.count + 1
+    if damage > m.peak or m.count == 1 then
+        m.peak = math.max(m.peak, damage)
+        m.peak_spell = spell_name or m.peak_spell
+    end
+    return m
+end
+
+function Tracker:sorted_mb()
+    local list = {}
+    for _, m in pairs(self.mb_stats) do list[#list + 1] = m end
+    table.sort(list, function(a, b)
+        if a.total ~= b.total then return a.total > b.total end
+        return a.order < b.order
+    end)
+    return list
+end
+
+-- what: nil (everything) | 'ws' | 'mb'
+function Tracker:reset(what)
+    if what == nil or what == 'ws' then self.stats = {} end
+    if what == nil or what == 'mb' then self.mb_stats = {} end
+    if what == nil then self.order = 0 end
 end
 
 return M

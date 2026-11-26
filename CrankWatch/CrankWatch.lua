@@ -111,6 +111,15 @@ local defaults = {
     sc_detail_font = 'Consolas',
     sc_detail_gap = 30,
     sc_detail_offset_x = 0,
+    -- Horizontal offsets set by //cw move (vertical ones reuse the 2.0 gaps).
+    dmg_offset_x = 0,
+    avg_offset_x = 0,
+    flair_offset_x = 0,
+    sc_offset_x = 0,
+    sc_bar_offset_x = 0,
+    sc_chain_info_offset_x = 0,
+    mb_party = true,            -- also pop MBs cast by party members (with their name)
+    mb_max_lines = 4,           -- simultaneous MBs stack up to this many lines
     Show = sc_engine.default_show(),
     aoe_sum = false,
     banner_mode = 'self',       -- 'self' | 'party'
@@ -118,6 +127,7 @@ local defaults = {
     track_trusts = false,
     track_alliance = true,
     party_panel = false,
+    party_panel_fade = false,   -- true: party panel fades with the WS banner
     party_panel_size = 13,
     party_panel_font = 'Consolas',
     party_panel_offset_x = 260,
@@ -219,17 +229,26 @@ local function refresh_party_panel()
         hud:set_party_lines(nil)
         return
     end
-    local rows = tracker:sorted()
-    if #rows == 0 then
+    local rows, mbs = tracker:sorted(), tracker:sorted_mb()
+    if #rows == 0 and #mbs == 0 then
         hud:set_party_lines(nil)
         return
     end
-    local lines = {('%-12s %4s %8s %8s'):format('Party WS', '#', 'Avg', 'Peak')}
-    for i = 1, math.min(#rows, settings.party_panel_rows or 8) do
-        local s = rows[i]
-        lines[#lines + 1] = ('%-12s %4d %8s %8s'):format(
-            tostring(s.name):sub(1, 12), s.count, short_number(tracker:average(s) or 0), short_number(s.peak))
+    local max_rows = settings.party_panel_rows or 8
+    local lines = {}
+    local function section(title, list)
+        if #list == 0 then return end
+        if #lines > 0 then lines[#lines + 1] = '' end
+        lines[#lines + 1] = ('%-12s %4s %8s %8s'):format(title, '#', 'Avg', 'Peak')
+        for i = 1, math.min(#list, max_rows) do
+            local s = list[i]
+            local avg = s.count > 0 and math.floor(s.total / s.count) or 0
+            lines[#lines + 1] = ('%-12s %4d %8s %8s'):format(
+                tostring(s.name):sub(1, 12), s.count, short_number(avg), short_number(s.peak))
+        end
     end
+    section('Party WS', rows)
+    section('Magic Bursts', mbs)
     hud:set_party_lines(tconcat(lines, '\n'))
 end
 
@@ -241,7 +260,7 @@ local function record_and_show(info, ws_name, damage, whiff)
         return nil
     end
     local on_banner = settings.banner_mode == 'party' or info.kind == 'self'
-    if on_banner then
+    if on_banner and not hud.moving then
         local label
         if settings.banner_mode == 'party' then
             label = tostring(info.name) .. ': ' .. ws_name .. '!'
@@ -319,7 +338,7 @@ local function handle_sc_events(events, target_id)
             if debug_mode then
                 chat(('Skillchain: %s (step %d) on target %s'):format(ev.skillchain, ev.reson.step, tostring(target_id)))
             end
-            if tracker:resolve_actor(ev.actor) then
+            if not hud.moving and tracker:resolve_actor(ev.actor) then
                 hud:sc_bonus(ev.damage)
             end
         elseif ev.kind == 'burst_reset' and debug_mode then
@@ -328,20 +347,36 @@ local function handle_sc_events(events, target_id)
     end
 end
 
+-- Magic Bursts: every party burst on any mob goes on the tally board
+-- (main target's damage, or all targets with aoe_sum); the popup only
+-- shows bursts on your current target.
 local function handle_mb(rec, target_id)
-    if not settings.mb_enabled or not target_id or hud.manual_hidden then return end
-    for _, t in ipairs(rec.targets) do
-        if t.id == target_id then
-            for _, a in ipairs(t.actions) do
-                if MB_DMG_MSGS:contains(a.message_id) then
-                    -- Roster lookup only once an MB is actually present.
-                    if tracker:resolve_actor(rec.actor) then
-                        hud:mb_popup(a.param or 0)
-                    end
-                    return
+    local tally, popup_dmg, found = 0, nil, false
+    for i, t in ipairs(rec.targets) do
+        for _, a in ipairs(t.actions) do
+            if MB_DMG_MSGS:contains(a.message_id) then
+                if not found or settings.aoe_sum then
+                    tally = tally + (a.param or 0)
                 end
+                found = true
+                if t.id == target_id and not popup_dmg then popup_dmg = a.param or 0 end
             end
         end
+    end
+    if not found then return end
+
+    -- Roster lookup only once an MB is actually present.
+    local info = tracker:resolve_actor(rec.actor)
+    if not info then return end
+
+    if tracker:should_record(info) then
+        tracker:record_mb(info, tally, action_name(rec.resource, rec.action_id))
+        refresh_party_panel()
+    end
+
+    if popup_dmg and settings.mb_enabled and not hud.manual_hidden and not hud.moving
+            and (info.kind == 'self' or settings.mb_party) then
+        hud:mb_popup(popup_dmg, info.kind ~= 'self' and info.name or nil)
     end
 end
 
@@ -412,6 +447,17 @@ windower.register_event('job change', function(job_id)
     end
 end)
 
+-- //cw move: drag HUD parts. Returning true keeps the click from the game.
+windower.register_event('mouse', function(type, x, y, delta, blocked)
+    if blocked or not hud.moving then return end
+    local consumed, dropped = hud:mouse(type, x, y)
+    if dropped then
+        save_settings()
+        chat(('%s moved and saved.'):format(dropped.label))
+    end
+    if consumed then return true end
+end)
+
 windower.register_event('incoming chunk', function(id, data)
     engine:on_chunk(id, data)
 end)
@@ -419,16 +465,21 @@ end)
 windower.register_event('prerender', function()
     local now = os.clock()
     if not engine.info.job then init_player() end
-    local view = engine:view(current_target(), now) or hud:test_view(now)
-    hud:render_sc(view)
+    if not hud.moving then
+        local view = engine:view(current_target(), now) or hud:test_view(now)
+        hud:render_sc(view)
+    end
     hud:update(now)
 end)
 
-local function reset_average(silent)
-    tracker:reset()
-    hud:reset_banner_average()
+-- what: nil (WS and MB) | 'ws' | 'mb'
+local function reset_average(silent, what)
+    tracker:reset(what)
+    if what ~= 'mb' then hud:reset_banner_average() end
     refresh_party_panel()
-    if not silent then chat('Average reset.') end
+    if not silent then
+        chat(what == 'mb' and 'Magic Burst tallies reset.' or what == 'ws' and 'WS stats and average reset.' or 'WS stats, average and Magic Burst tallies reset.')
+    end
 end
 
 windower.register_event('zone change', function()
@@ -451,9 +502,24 @@ end)
 -- Commands
 ---------------------------------------------------------------------------
 
+-- Test commands are display-only: they never touch real stats, averages
+-- or peaks. The banner shows your real average (if any) next to the fake
+-- hit, and a separate counter drives the CRANKED x N test streak.
+local test_streak = 0
 local function test_commit(ws, dmg)
     local whiff = dmg == 'WHIFF'
-    record_and_show(self_info(), ws, whiff and 0 or tonumber(dmg), whiff)
+    local damage = whiff and 0 or tonumber(dmg) or 0
+    if not whiff and damage == 99999 then test_streak = test_streak + 1 else test_streak = 0 end
+    local me = tracker:get(self_info().id)
+    hud:show_ws({
+        label = 'Last WS: ' .. ws .. '!',
+        damage = damage,
+        whiff = whiff,
+        avg = me and tracker:average(me) or nil,
+        trend = me and me.trend or '',
+        trend_color = me and me.trend_color or nil,
+        streak = test_streak,
+    })
 end
 
 local function on_off(value, key, label, after)
@@ -500,9 +566,9 @@ local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | 
     .. ' | scsize 34 | scfade 4 | scfloat 28 | scoffset 32 | scbar on|off | scbargap 132 | scbarwidth 18 | scbarsize 18 | scbardelay 3 | scbarlabelsize 15 | scbarlabeloverlap 20'
     .. ' | scchaincountersize 18 | scchaincountergap 6 | scinfogap 175 | scdetailsize 13 | scdetailgap 30 | schud on|off | scburst 0'
     .. ' | sc burst|pet|props|spell|step|timer|weapon|color | scaeonic on|off'
-    .. ' | mb on|off | mbsize 24 | mbx 95 | mby -31'
-    .. ' | bannermode self|party | party on|off | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
-    .. ' | blacklist add|remove|list <ws> | stats | autoreset on|off | reset | factoryreset | debug'
+    .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
+    .. ' | bannermode self|party | party on|off | party fade on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
+    .. ' | blacklist add|remove|list <ws> | stats | autoreset on|off | reset [ws|mb|all] | factoryreset | debug'
 
 local SC_TEST_NAMES = ui_hud.SC_NAMES
 local SC_SHOW_KEYS = {burst = true, pet = true, props = true, spell = true, step = true, timer = true, weapon = true}
@@ -768,7 +834,14 @@ windower.register_event('addon command', function(cmd, ...)
         end
 
     elseif cmd == 'party' then
-        on_off(arg1, 'party_panel', 'Party WS panel', refresh_party_panel)
+        if tostring(arg1 or ''):lower() == 'fade' then
+            on_off(arg2, 'party_panel_fade', 'Party panel fades with the banner', function() hud:update_party() end)
+        else
+            on_off(arg1, 'party_panel', 'Party panel', refresh_party_panel)
+        end
+    elseif cmd == 'testparty' then
+        hud:start_party_test(10)
+        chat('Showing a sample party panel for 10 seconds.')
     elseif cmd == 'partypos' then
         local x, y = tonumber(arg1), tonumber(arg2)
         if x and y then
@@ -815,6 +888,12 @@ windower.register_event('addon command', function(cmd, ...)
                 short_number(tracker:average(s) or 0), short_number(s.peak),
                 s.peak_ws and (' [' .. s.peak_ws .. ']') or '', s.whiffs))
         end
+        local mbs = tracker:sorted_mb()
+        for _, m in ipairs(mbs) do
+            chat(('%s MB: %d bursts, avg %s, peak %s%s'):format(m.name, m.count,
+                short_number(math.floor(m.total / math.max(m.count, 1))), short_number(m.peak),
+                m.peak_spell and (' [' .. m.peak_spell .. ']') or ''))
+        end
 
     elseif cmd == 'layout' then
         chat('Layout: pos ' .. tostring(settings.center_x) .. ', ' .. tostring(settings.center_y)
@@ -825,10 +904,20 @@ windower.register_event('addon command', function(cmd, ...)
             .. ' | font ' .. tostring(settings.font))
 
     elseif cmd == 'reset' or cmd == 'resetavg' then
-        reset_average(false)
+        local what = tostring(arg1 or ''):lower()
+        if what == 'ws' or what == 'mb' then
+            reset_average(false, what)
+        elseif what == '' or what == 'all' then
+            reset_average(false)
+        else
+            chat('Usage: //cw reset [ws|mb|all]')
+        end
 
     elseif cmd == 'autoreset' then
         on_off(arg1, 'auto_reset', 'Auto average reset')
+
+    elseif cmd == 'mbparty' then
+        on_off(arg1, 'mb_party', "Show party members' Magic Bursts")
 
     elseif cmd == 'factoryreset' then
         for k, v in pairs(defaults) do
@@ -840,7 +929,19 @@ windower.register_event('addon command', function(cmd, ...)
         save_settings()
         chat('Factory settings reset and saved.')
 
+    elseif cmd == 'move' then
+        if hud.moving then
+            hud:stop_move()
+            refresh_party_panel()
+            save_settings()
+            chat('Move mode off. Positions saved.')
+        else
+            hud:start_move()
+            chat('Move mode: drag any part with the left mouse button. Drag the "Last WS" line to move everything. //cw move again when done.')
+        end
+
     elseif cmd == 'hide' then
+        if hud.moving then hud:stop_move() end
         hud:hide_all()
 
     elseif cmd == 'show' then

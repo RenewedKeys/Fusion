@@ -30,6 +30,33 @@ default is `0` (off), but your saved value wins. To match the new default:
 //cw scburst 0
 ```
 
+## Moving the HUD: `//cw move`
+
+`//cw move` shows every part filled with sample data. Drag any part with
+the left mouse button; it saves when you let go. Run `//cw move` again to
+finish.
+
+- Drag the `Last WS` line to move the whole HUD.
+- Every other part moves on its own: damage line, average line, hit flair,
+  SC Bonus, SC bar, chain line, closer list, party panel and MB popup.
+- Clicks on empty space still reach the game. WSs that land while you're
+  dragging are still recorded; they just don't replace the sample.
+
+## Recommended: your WSs, your party's WSs and party MBs
+
+```
+//cw bannermode party   every party WS on the banner, with the player's name
+//cw party on           running per-player count / average / peak
+//cw mbparty on         party mages' bursts, named (on by default)
+//cw trusts on          only if you play with trusts
+//cw move               place the party panel and MB popup
+```
+
+Pets and alliance members are tracked by default (`//cw pets`,
+`//cw alliance`). MBs pop for your current target only. Bursts that land
+together stack, up to 4 lines (`mb_max_lines` in settings). In a busy
+alliance, `bannermode self` with the party panel on is calmer.
+
 ## What changed from 2.0
 
 - **No chat parsing.** WS damage, SC Bonus and Magic Burst all come from
@@ -40,7 +67,11 @@ default is `0` (off), but your saved value wins. To match the new default:
 - **Banner modes.** In `//cw bannermode self` (the default), only your WSs show
   on the banner. In `party` mode, everyone's do, labelled with their name; the
   average, trend and CRANKED streak follow whoever is on screen.
-- **Party panel** (`//cw party on`): per-member WS count, average and peak.
+- **Party panel** (`//cw party on`): per-member WS count, average and peak,
+  plus Magic Burst tallies. It stays on screen while it has at least one WS
+  or burst recorded, and hides itself when empty (fresh load, `//cw reset`,
+  zoning with autoreset on). `//cw party fade on` makes it fade with the
+  banner instead. `//cw testparty` shows sample rows for 10 seconds.
 - **SkillChains parity.**
   - Chains are kept per target, so switching targets no longer resets them.
   - Wait/Go/Burst timers.
@@ -63,6 +94,16 @@ default is `0` (off), but your saved value wins. To match the new default:
   the banner, or left if it would run off screen (`//cw partypos dx dy`).
 - `//cw hide` now keeps everything hidden, the SC HUD included, until
   `//cw show` or your next WS.
+- Party members' Magic Bursts pop with the caster's name, and simultaneous
+  bursts stack (`//cw mbparty on|off`).
+- **Magic Burst tallies**: every party member's bursts, on any mob, are
+  counted per caster (count, average, peak) in a second section of the party
+  panel and in `//cw stats`.
+- **Resetting**: `//cw reset` clears WS stats, averages and MB tallies.
+  `//cw reset ws` or `//cw reset mb` clears just one. Zoning still resets
+  everything while `//cw autoreset` is on.
+- Test commands (`//cw test`, `testmassive`, ...) only change the display.
+  They never touch your stats or peaks.
 - `//cw stats` prints the per-member breakdown to chat.
 - `//cw debug` also prints action message IDs CrankWatch doesn't recognise.
 

@@ -6,7 +6,9 @@
 --
 -- Groups:
 --   banner : Last WS line, damage, Avg label/value/trend, flair, SC Bonus,
---            party panel. Fades in/holds/fades out as before.
+--            Fades in/holds/fades out as before.
+--   party  : party panel. Stays up while it has data (or follows the banner
+--            fade with settings.party_panel_fade); see Hud:update_party().
 --   sc     : bar, "SC Window:" label + status, Chain counter, chain info
 --            (prefix / coloured name / elements) and the SC detail block
 --            (Step, properties, closer list). Independent of the banner
@@ -144,7 +146,7 @@ end
 -- Construction / registry
 ---------------------------------------------------------------------------
 
-M.BANNER = {'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc', 'party'}
+M.BANNER = {'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}
 M.SC = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter',
         'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements', 'sc_detail'}
 
@@ -189,6 +191,11 @@ function M.new(opts)
 
     -- mb state
     self.mb_visible, self.mb_start_time, self.mb_expire, self.mb_shake_start = false, 0, 0, 0
+    self.mb_lines = {}
+
+    -- move (drag) mode
+    self.moving = false
+    self.drag = nil
 
     local s = self.settings
     self:obj('ws', s.ws_size)
@@ -277,7 +284,7 @@ function Hud:apply_alpha(alpha)
     alpha = clamp(math.floor(alpha or 255), 0, 255)
     self.alpha_current = alpha
 
-    for _, n in ipairs({'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do
+    for _, n in ipairs({'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend'}) do
         set_alpha(self[n], alpha)
     end
     if self.sc_visible and not self.sc_fading then set_alpha(self.sc, alpha) end
@@ -304,7 +311,6 @@ function Hud:apply_alpha(alpha)
         if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
         if self.sc_visible then self.sc:show() end
         if self.flair_visible then self.flair:show() end
-        if self:party_enabled() then self.party:show() else self.party:hide() end
     end
 end
 
@@ -316,13 +322,13 @@ function Hud:request_layout_refresh(duration)
     self.layout_refresh_until = self.clock() + (duration or 0.35)
 end
 
-function Hud:position_line(o, y)
-    o:pos(math.floor(self.settings.center_x - (extents(o) / 2)), y)
+function Hud:position_line(o, y, dx)
+    o:pos(math.floor(self.settings.center_x - (extents(o) / 2) + (dx or 0)), y)
 end
 
 function Hud:position_avg_line()
     local s = self.settings
-    local x = self.ws:pos()
+    local x = math.floor(self.ws:pos() + (s.avg_offset_x or 0))
     local y = s.center_y + s.avg_gap
     self.avg_label:pos(x, y)
     local lw = extents(self.avg_label)
@@ -344,7 +350,7 @@ function Hud:position_sc_bar()
     local now = self.clock()
     local y = s.center_y + (s.sc_bar_gap or ((s.avg_gap or 99) + 34))
     local bar_w = extents(self.sc_bar)
-    local x = self.ws:pos()
+    local x = self.ws:pos() + (s.sc_bar_offset_x or 0)
 
     local dx, keep = shake_offset(self.sc_bar_shake_start, s.sc_bar_shake_duration or 0.35, s.sc_bar_shake_strength or 5, 60, now)
     self.sc_bar_shake_start = keep
@@ -367,7 +373,7 @@ end
 
 function Hud:position_chain_info()
     local s = self.settings
-    local x = self.ws:pos()
+    local x = self.ws:pos() + (s.sc_chain_info_offset_x or 0)
     local y = self:chain_info_y()
     local dx, keep = shake_offset(self.chain_info_shake_start, s.sc_chain_info_shake_duration or 0.75, s.sc_chain_info_shake_strength or 8, 80, self.clock())
     self.chain_info_shake_start = keep
@@ -396,7 +402,8 @@ function Hud:position_detail()
     h = tonumber(h) or 0
     local x = math.floor(self.ws:pos() + (s.sc_detail_offset_x or 0))
     local y = math.floor(self:chain_info_y() + (s.sc_detail_gap or 30))
-    if y + h > sh then
+    local dragging = self.drag and self.drag.part.name == 'detail'
+    if y + h > sh and not dragging then
         y = math.floor(s.center_y - (s.sc_detail_gap or 30) - h)
     end
     self.sc_detail:pos(x, math.max(0, y))
@@ -428,11 +435,12 @@ function Hud:position_party()
     w, h = tonumber(w) or 0, tonumber(h) or 0
     local off = s.party_panel_offset_x or 260
     local x = math.floor(s.center_x + off)
-    if x + w > sw then
+    local dragging = self.drag and self.drag.part.name == 'party'
+    if x + w > sw and not dragging then
         x = math.floor(s.center_x - off - w)
     end
     local y = math.floor(s.center_y + (s.party_panel_offset_y or 0))
-    if y + h > sh then y = sh - h end
+    if y + h > sh and not dragging then y = sh - h end
     self.party:pos(math.max(0, x), math.max(0, y))
 end
 
@@ -448,7 +456,7 @@ function Hud:update_display()
 
     self:position_line(self.ws, s.center_y)
     if not self.whiff_shaking then
-        self:position_line(self.dmg, s.center_y + s.line_gap)
+        self:position_line(self.dmg, s.center_y + s.line_gap, s.dmg_offset_x)
     end
     self:position_avg_line()
     if self.sc_bar_active then self:position_sc_bar() end
@@ -456,7 +464,7 @@ function Hud:update_display()
     if self.sc_bar_active then self:position_detail() end
     if self.mb_visible then self:position_mb() end
     if self.flair_visible and not self.flair_fading then
-        self:position_line(self.flair, s.center_y + s.flair_gap)
+        self:position_flair(s.center_y + s.flair_gap)
     end
     self:position_party()
 end
@@ -531,7 +539,7 @@ function Hud:start_damage_fade_in()
     self.ws:show(); self.dmg:show(); self.avg_label:show(); self.avg_value:show()
     if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
     if self.sc_visible then self.sc:show() end
-    for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do set_alpha(self[n], 255) end
+    for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend'}) do set_alpha(self[n], 255) end
     if self.sc_visible and not self.sc_fading then set_alpha(self.sc, 255) end
     set_alpha(self.dmg, 1)
     if self.flair_visible then
@@ -541,7 +549,6 @@ function Hud:start_damage_fade_in()
             set_alpha(self.flair, 255)
         end
     end
-    if self:party_enabled() then self.party:show() end
     self.alpha_current = 255
 end
 
@@ -598,7 +605,17 @@ function Hud:reset_banner_average()
 end
 
 function Hud:position_sc_line(y)
-    self.sc:pos(math.floor(self.settings.center_x - (extents(self.sc) / 2)), y)
+    local s = self.settings
+    self.sc:pos(math.floor(s.center_x - (extents(self.sc) / 2) + (s.sc_offset_x or 0)), y)
+end
+
+-- Flair sits over the right part of the damage number.
+function Hud:position_flair(y)
+    local s = self.settings
+    local dx = self.dmg:pos()
+    self.flair:pos(
+        math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72)) + (s.flair_offset_x or 0)),
+        math.floor(y + (s.flair_offset_y or -4)))
 end
 
 -- SC Bonus float: tied to the banner (decision 6).
@@ -623,22 +640,33 @@ function Hud:sc_bonus(dmg)
     return true
 end
 
-function Hud:mb_popup(dmg)
+-- who: nil for your own burst, otherwise the caster's name. Bursts that
+-- land while the popup is still up stack as extra lines (newest last).
+function Hud:mb_popup(dmg, who)
     local s = self.settings
     if not s.mb_enabled then return false end
     local raw = tonumber(tostring(dmg or '0'):gsub(',', ''), 10) or 0
     if raw < 0 then return false end
+    local now = self.clock()
+    local line = (who and (tostring(who) .. ' MB: ') or 'MB: ') .. M.format_number(raw) .. '!!'
+    local stacking = self.mb_visible and now < self.mb_expire
+    if not stacking then
+        self.mb_lines = {}
+        self.mb_start_time = now
+    end
+    local lines = self.mb_lines
+    lines[#lines + 1] = line
+    while #lines > (s.mb_max_lines or 4) do table.remove(lines, 1) end
     local o = self.mb
-    o:text('MB: ' .. M.format_number(raw) .. '!!')
+    o:text(tconcat(lines, '\n'))
     o:font(s.font or 'Highwind')
     o:size(s.mb_size or 18)
     o:color(255, 140, 255)
     o:stroke_width(s.stroke_width)
-    set_alpha(o, 0)
+    if not stacking then set_alpha(o, 0) end
     self.mb_visible = true
-    self.mb_start_time = self.clock()
-    self.mb_shake_start = self.mb_start_time
-    self.mb_expire = self.mb_start_time + (s.mb_duration or 3.0)
+    self.mb_shake_start = now
+    self.mb_expire = now + (s.mb_duration or 3.0)
     self:position_mb()
     o:show()
     return true
@@ -652,18 +680,12 @@ end
 function Hud:set_party_lines(text)
     self.party_lines = text
     local o = self.party
-    o:text(text or '')
     o:font(self.settings.party_panel_font or 'Consolas')
     o:size(self.settings.party_panel_size or 13)
     o:color(255, 255, 255)
     o:stroke_width(math.max(1, (self.settings.stroke_width or 4) - 2))
-    self:position_party()
-    if self:party_enabled() and self:banner_visible() then
-        set_alpha(o, self.alpha_current)
-        o:show()
-    else
-        o:hide()
-    end
+    self.party_shown_text = nil
+    self:update_party()
 end
 
 ---------------------------------------------------------------------------
@@ -864,9 +886,13 @@ end
 -- Per-frame animation
 ---------------------------------------------------------------------------
 
-function Hud:update(now)
+function Hud:update_frame(now)
     now = now or self.clock()
     local s = self.settings
+    if self.moving then
+        self:render_move()
+        return
+    end
 
     if self.layout_refresh_until > 0 then
         if now <= self.layout_refresh_until then
@@ -952,8 +978,7 @@ function Hud:update(now)
             self.flair:size(math.max(1, math.floor(self.flair_base_size - ((s.flair_shrink_size or 0) * t))))
             set_alpha(self.flair, math.floor(self.flair_fade_start_alpha * (1 - t)))
             self.flair:show()
-            local dx = self.dmg:pos()
-            self.flair:pos(math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72))), math.floor(y + (s.flair_offset_y or -4)))
+            self:position_flair(y)
         end
     end
 
@@ -965,7 +990,7 @@ function Hud:update(now)
             self:update_display()
         else
             local offset = math.floor(math.sin(t * 70) * s.whiff_shake_strength * (1 - t))
-            self.dmg:pos(math.floor(s.center_x - (extents(self.dmg) / 2)) + offset, s.center_y + s.line_gap)
+            self.dmg:pos(math.floor(s.center_x - (extents(self.dmg) / 2) + (s.dmg_offset_x or 0)) + offset, s.center_y + s.line_gap)
         end
     end
 
@@ -986,7 +1011,7 @@ function Hud:update(now)
 
     if self.fade_state == 'damage_fade_in' then
         local t = (now - self.fade_start) / math.max(s.fade_in_duration, 0.01)
-        for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'party'}) do set_alpha(self[n], 255) end
+        for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend'}) do set_alpha(self[n], 255) end
         if t >= 1 then
             self.fade_state = 'visible'
             set_alpha(self.dmg, 255)
@@ -1007,6 +1032,221 @@ function Hud:update(now)
             self:apply_alpha(255 * (1 - t))
         end
     end
+end
+
+---------------------------------------------------------------------------
+-- Move (drag) mode: //cw move
+---------------------------------------------------------------------------
+
+-- Draggable parts, in hit-test priority order (small / on-top first).
+-- Dragging changes the part's two settings by the mouse delta. Every part
+-- is placed relative to the banner, so dragging the Last WS line (center_x
+-- / center_y) moves the whole HUD.
+M.PARTS = {
+    {name = 'mb',         label = 'Magic Burst popup', objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
+    {name = 'sc_bonus',   label = 'SC Bonus',          objs = {'sc'}, x = 'sc_offset_x', y = 'sc_offset_y'},
+    {name = 'flair',      label = 'Hit flair',         objs = {'flair'}, x = 'flair_offset_x', y = 'flair_gap'},
+    {name = 'chain_info', label = 'Chain line',        objs = {'sc_chain_info', 'sc_chain_info_name', 'sc_chain_info_elements'}, x = 'sc_chain_info_offset_x', y = 'sc_chain_info_gap'},
+    {name = 'detail',     label = 'Closer list',       objs = {'sc_detail'}, x = 'sc_detail_offset_x', y = 'sc_detail_gap'},
+    {name = 'party',      label = 'Party panel',       objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
+    {name = 'sc_bar',     label = 'SC bar',            objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
+    {name = 'avg',        label = 'Average line',      objs = {'avg_label', 'avg_value', 'avg_trend'}, x = 'avg_offset_x', y = 'avg_gap'},
+    {name = 'dmg',        label = 'Damage line',       objs = {'dmg'}, x = 'dmg_offset_x', y = 'line_gap'},
+    {name = 'banner',     label = 'Whole HUD',         objs = {'ws'}, x = 'center_x', y = 'center_y'},
+}
+
+local SAMPLE_PARTY = tconcat({
+    ('%-12s %4s %8s %8s'):format('Party WS', '#', 'Avg', 'Peak'),
+    ('%-12s %4d %8s %8s'):format('Velner', 12, '48,210', '99,999'),
+    ('%-12s %4d %8s %8s'):format('Partymember', 9, '31,402', '62,118'),
+    ('%-12s %4d %8s %8s'):format('Ifrit', 4, '12,950', '18,330'),
+}, '\n')
+
+local SAMPLE_CLOSERS = tconcat({
+    ('%-16s → Lv.%d %-14s'):format('Torcleaver', 4, 'Radiance'),
+    ('%-16s → Lv.%d %-14s'):format('Upheaval', 3, 'Light'),
+    ('%-16s → Lv.%d %-14s'):format('Savage Blade', 2, 'Distortion'),
+}, '\n')
+
+-- Party panel visibility:
+--   * //cw hide hides it until //cw show or your next WS
+--   * //cw move and //cw testparty show sample rows, data or not
+--   * otherwise it needs party_panel on AND at least one recorded row; it
+--     then stays up, or follows the banner fade with party_panel_fade on.
+function Hud:party_testing()
+    return self.party_test_until ~= nil and self.clock() < self.party_test_until
+end
+
+function Hud:start_party_test(seconds)
+    self.party_test_until = self.clock() + (seconds or 10)
+    self:update_party()
+end
+
+function Hud:party_visible()
+    if self.manual_hidden then return false end
+    if self.moving or self:party_testing() then return true end
+    if not self:party_enabled() then return false end
+    if self.settings.party_panel_fade then return self:banner_visible() end
+    return true
+end
+
+function Hud:update_party()
+    local o = self.party
+    local sample = self.moving or self:party_testing()
+    local text = sample and SAMPLE_PARTY or self.party_lines
+    if not self:party_visible() or not text or text == '' then
+        o:hide()
+        return
+    end
+    if self.party_shown_text ~= text then
+        o:text(text)
+        self.party_shown_text = text
+    end
+    self:position_party()
+    local fade = self.settings.party_panel_fade and not sample
+    set_alpha(o, fade and self.alpha_current or 255)
+    o:show()
+end
+
+function Hud:update(now)
+    self:update_frame(now)
+    self:update_party()
+end
+
+function Hud:move_view()
+    return {
+        target_id = 'move', phase = 'go',
+        wait_remaining = 0, wait_total = 3, remaining = 4.2, window_total = 6,
+        step = 3, chain = 2, sc_name = 'Light', name = 'Torcleaver',
+        props = 'Light', elements = '(Fire,Wind,Lightning,Light)',
+        closers = SAMPLE_CLOSERS,
+        show_timer = true, show_step = true, show_props = true, show_burst = true,
+    }
+end
+
+function Hud:start_move()
+    if self.moving then return end
+    local b = self.banner
+    self.saved_banner = {label = b.label, dmg = b.dmg, avg = b.avg, avg_raw = b.avg_raw, trend = b.trend,
+        trend_color = b.trend_color, raw = b.raw, cranked = b.cranked, whiff = self.is_whiff}
+    self.moving = true
+    self.drag = nil
+    self.manual_hidden = false
+    self.test_bar = nil
+    self.is_whiff, self.whiff_shaking, self.pop_active = false, false, false
+    b.label, b.dmg, b.raw = 'Last WS: Savage Blade!', '54,321', 54321
+    b.avg, b.avg_raw, b.trend, b.trend_color = '43,210', 43210, '↑', {80, 255, 80}
+    self.fade_state, self.alpha_current = 'visible', 255
+
+    local s = self.settings
+    self.dmg:size(s.dmg_size)
+    self:apply_avg_style(b.avg_raw)
+    self.dmg:color(255, 215, 0)
+    self.flair:text('BIG HIT!'); self.flair:size(s.flair_size); self.flair:color(255, 255, 255)
+    self.sc:text('SC Bonus: 12,345!!'); self.sc:size(s.sc_size or s.flair_size); self.sc:color(120, 255, 255)
+    self.mb_lines = {'MB: 40,000!!', 'Mage MB: 35,120!!'}
+    self.mb:text(tconcat(self.mb_lines, '\n')); self.mb:size(s.mb_size or 18); self.mb:color(255, 140, 255)
+    self.chain_info_key = nil
+    self:render_sc(self:move_view())
+    self:render_move()
+end
+
+-- Draw every part at its resting position, fully visible, every frame.
+function Hud:render_move()
+    local s = self.settings
+    self:render_sc(self:move_view())
+    self.sc_bar_shake_start, self.chain_info_shake_start, self.mb_shake_start = 0, 0, 0
+    self:update_display()
+    self:position_flair(s.center_y + s.flair_gap)
+    self:position_sc_line(math.floor(s.center_y + (s.sc_gap or s.flair_gap or 118) + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+    self:position_mb()
+    self:position_party()
+    for _, part in ipairs(M.PARTS) do
+        for _, n in ipairs(part.objs) do
+            local o = self.by_name[n]
+            if not (n == 'avg_trend' and self.banner.trend == '') then
+                set_alpha(o, 255)
+                o:show()
+            end
+        end
+    end
+    self.avg:hide()
+end
+
+function Hud:stop_move()
+    if not self.moving then return end
+    self.moving = false
+    self.drag = nil
+    local saved = self.saved_banner or {}
+    local b = self.banner
+    for _, k in ipairs({'label', 'dmg', 'avg', 'avg_raw', 'trend', 'trend_color', 'raw', 'cranked'}) do
+        if saved[k] ~= nil then b[k] = saved[k] end
+    end
+    self.is_whiff = saved.whiff or false
+    self.flair_visible, self.flair_fading = false, false
+    self.sc_visible, self.sc_fading = false, false
+    self.mb_visible, self.mb_lines = false, {}
+    self:hide_sc_group()
+    self:hide_chain_info()
+    self:apply_damage_style()
+    self:apply_avg_style(b.avg_raw)
+    self.fade_state = 'hidden'
+    self:apply_alpha(0)
+    for _, o in ipairs(self.registry) do o:hide() end
+    self:update_party()
+end
+
+local function hit(o, x, y)
+    if not o:visible() then return false end
+    local px, py = o:pos()
+    local w, h = o:extents()
+    w, h = tonumber(w) or 0, tonumber(h) or 0
+    return x >= px and x <= px + w and y >= py and y <= py + h
+end
+
+function Hud:part_at(x, y)
+    for _, part in ipairs(M.PARTS) do
+        for _, n in ipairs(part.objs) do
+            if hit(self.by_name[n], x, y) then return part end
+        end
+    end
+end
+
+-- Windower mouse event. Returns blocked (true keeps the click away from
+-- the game) and, on release, the part that was dropped.
+-- type: 0 move, 1 left down, 2 left up.
+function Hud:mouse(type, x, y)
+    if not self.moving then return false end
+    local s = self.settings
+    if type == 1 then
+        local part = self:part_at(x, y)
+        if not part then return false end
+        local sx, sy = s[part.x] or 0, s[part.y] or 0
+        -- Closer list and party panel can be auto-flipped to stay on screen;
+        -- start the drag from where they are actually drawn.
+        if part.name == 'detail' then
+            local _, py = self.sc_detail:pos()
+            sy = py - self:chain_info_y()
+        elseif part.name == 'party' then
+            local px, py = self.party:pos()
+            sx, sy = px - s.center_x, py - s.center_y
+        end
+        s[part.x], s[part.y] = sx, sy
+        self.drag = {part = part, mx = x, my = y, sx = sx, sy = sy}
+        return true
+    elseif type == 0 and self.drag then
+        local d = self.drag
+        s[d.part.x] = math.floor(d.sx + (x - d.mx))
+        s[d.part.y] = math.floor(d.sy + (y - d.my))
+        self:render_move()
+        return true
+    elseif type == 2 and self.drag then
+        local part = self.drag.part
+        self.drag = nil
+        self:render_move()
+        return true, part
+    end
+    return false
 end
 
 ---------------------------------------------------------------------------
