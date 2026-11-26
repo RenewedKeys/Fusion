@@ -133,11 +133,15 @@ list grows downward under it:
 ```
 ██████████████░░░░              ← countdown bar: red = wait, green = GO, pink = burst
    SC Window: GO!! 4.2  Chain: 2  ← seconds left, and how many skillchains so far
-Step: 3 → Torcleaver            ← chain step → the WS that made it
-[Light] (Fire,Wind,Lightning,Light)   ← active skillchain, burst elements
+[Light] (Fire,Wind,Lightning,Light)   ← properties: skillchain on the mob, burst elements
 Torcleaver       → Lv.4 Radiance      ← closer list: what you can use next
 Upheaval         → Lv.3 Light         ←   → what it makes (highest level first)
 ```
+
+**Chain: N** counts skillchains made so far. An optional **Step** line
+(`//cw sc step all on`) shows the WS count instead (`Step: 3 → Torcleaver`,
+always Chain + 1), so it's off by default. Hidden lines leave no gap: the
+rows below move up.
 
 The closer list shows up to 4 rows, highest level first: `//cw sc rows <N>`
 changes that (0 = show all).
@@ -326,6 +330,7 @@ MB tallies on the party panel are always collected, whatever `mb` and
 | `//cw scbar on\|off` | on | The whole skillchain block |
 | `//cw schud on\|off` | on | On: shows whenever your target has a chain. Off: only while the banner is showing |
 | `//cw sc <part>` | see below | Turn one part on/off **for your current job** |
+| `//cw sc <part> all on\|off` | | Turn one part on or off **for every job** at once, e.g. `//cw sc step all off` |
 | `//cw sc color` | on | Coloured skillchain names in the properties line and closer list |
 | `//cw sc rows <N>` | 4 | Max closer-list rows, highest level first. 0 = all |
 | `//cw scaeonic on\|off` | off | Assume other players have their Aeonic weapon equipped (affects Lv.4 predictions) |
@@ -343,12 +348,12 @@ MB tallies on the party panel are always collected, whatever `mb` and
 | `//cw testbar` | | Sample WS plus a 10-second Wait → GO bar |
 
 **Per-job parts** (`//cw sc <part>`), as in SkillChains. Each one remembers a
-separate on/off for every job:
+separate on/off for every job (`//cw sc <part> all on|off` sets all jobs):
 
 | Part | Default jobs | Controls |
 |---|---|---|
 | `timer` | all | Seconds after `Wait`/`GO!!`/`Burst!` |
-| `step` | all | The `Step: N → WS` line |
+| `step` | none | The `Step: N → WS` line (WS count; always Chain + 1) |
 | `props` | all | The `[properties] (elements)` line |
 | `burst` | all | Burst phase after a chain closes, and burst elements on the properties line |
 | `weapon` | all | Your weapon skills in the closer list |

@@ -156,7 +156,7 @@ function M.default_show()
         pet    = S{'BST','SMN'},
         props  = S(M.all_jobs),
         spell  = S{'SCH','BLU'},
-        step   = S(M.all_jobs),
+        step   = S{},              -- CrankWatch: Step line off by default (the timer line's Chain: N covers it)
         timer  = S(M.all_jobs),
         weapon = S(M.all_jobs),
     }

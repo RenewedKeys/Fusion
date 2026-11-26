@@ -866,6 +866,20 @@ windower.register_event('addon command', function(cmd, ...)
             else
                 chat('Closer list rows: ' .. tostring(settings.sc_closer_rows) .. '. Usage: //cw sc rows <N> (0 = all)')
             end
+        elseif SC_SHOW_KEYS[key] and tostring(arg2 or ''):lower() == 'all' then
+            -- //cw sc <part> all on|off: every job at once
+            local value = tostring(args[3] or ''):lower()
+            if value ~= 'on' and value ~= 'off' then
+                chat('Usage: //cw sc ' .. key .. ' all on|off')
+            else
+                local set = settings.Show[key]
+                for _, j in ipairs(sc_engine.all_jobs) do
+                    if value == 'on' then set:add(j) else set:remove(j) end
+                end
+                engine:invalidate()
+                save_settings()
+                chat(('SC %s info: %s on every job.'):format(key, value == 'on' and 'ON' or 'OFF'))
+            end
         elseif SC_SHOW_KEYS[key] then
             if not job then
                 chat('Job not known yet; try again after logging in.')
@@ -879,7 +893,7 @@ windower.register_event('addon command', function(cmd, ...)
                 chat(('SC %s info will no%s be displayed on %s.'):format(key, had and ' longer' or 'w', job))
             end
         else
-            chat('Usage: //cw sc burst|pet|props|spell|step|timer|weapon|color | //cw sc rows <N>')
+            chat('Usage: //cw sc burst|pet|props|spell|step|timer|weapon [all on|off] | //cw sc color | //cw sc rows <N>')
         end
 
     elseif cmd == 'scaeonic' then
