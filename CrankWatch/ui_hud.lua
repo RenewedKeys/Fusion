@@ -226,9 +226,9 @@ function Hud:apply_alpha(alpha)
             self:each(M.SC, function(o) o:hide() end)
         end
     else
-        self.ws:show(); self.dmg:show(); self.avg_label:show(); self.avg_value:show()
+        self.ws:show(); self.dmg:show()
         self.avg:hide()
-        if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
+        self:show_avg_line()
         if self.sc_visible then self.sc:show() end
         if self.flair_visible then self.flair:show() end
     end
@@ -281,9 +281,10 @@ local function shake_offset(start, duration, strength, freq, clock)
 end
 
 -- The skillchain block moves as one unit, top to bottom:
---     closer list (Step / properties / what to use next)  - //cw scdetail
 --     red/green bar
 --     "SC Window: GO!! 4.2  Chain: N"
+--     closer list (Step / properties / what to use next)  - //cw scdetail
+-- The bar stays put; the closer list grows downward under it.
 -- sc_bar_gap / sc_bar_offset_x place the block's top-left corner.
 local function text_height(o, size)
     local _, h = o:extents()
@@ -319,8 +320,7 @@ function Hud:position_sc_bar()
             y = math.floor(s.center_y - total - 8)
         end
         y = math.max(0, y)
-        self.block_top = y
-        y = y + self:block_detail_height()   -- the bar sits under the closer list
+        self.block_top = y   -- the bar is the top of the block
     end
     local bar_w = extents(self.sc_bar)
     -- block x is from the banner centre, so it doesn't shift with the
@@ -350,11 +350,12 @@ function M.screen()
     return 1920, 1080
 end
 
--- Closer list: top of the skillchain block, left-aligned with the bar.
+-- Closer list: under the SC Window line, left-aligned with the bar.
 function Hud:position_detail()
-    local x = self.sc_bar:pos()
     local s = self.settings
-    self.sc_detail:pos(math.floor(x), math.floor(self.block_top or (s.center_y + (s.sc_bar_gap or 132))))
+    local x = self.sc_bar:pos()
+    local _, ly = self.sc_bar_label:pos()
+    self.sc_detail:pos(math.floor(x), math.floor(ly + text_height(self.sc_bar_label, s.sc_bar_label_size or 15) + 4))
 end
 
 -- MB popup: its own position, from the banner centre (mb_offset_x is from
@@ -402,6 +403,9 @@ function Hud:update_display()
         self:position_line(self.dmg, self:banner_y() + s.line_gap)
     end
     self:position_avg_line()
+    if not self:avg_shown() then
+        self.avg_label:hide(); self.avg_value:hide(); self.avg_trend:hide()
+    end
     if self.sc_bar_active then self:position_sc_bar() end
     if self.sc_bar_active then self:position_detail() end
     if self.mb_visible then self:position_mb() end
@@ -438,7 +442,17 @@ function Hud:apply_trend_style()
     o:size(self.settings.avg_size)
     o:color(b.trend_color[1] or 255, b.trend_color[2] or 255, b.trend_color[3] or 255)
     o:stroke_width(self.settings.stroke_width)
-    if b.trend ~= '' and self:banner_visible() then o:show() else o:hide() end
+    if b.trend ~= '' and self:avg_shown() and self:banner_visible() then o:show() else o:hide() end
+end
+
+-- Show or hide the Avg line according to //cw avg.
+function Hud:show_avg_line()
+    if self:avg_shown() then
+        self.avg_label:show(); self.avg_value:show()
+        if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
+    else
+        self.avg_label:hide(); self.avg_value:hide(); self.avg_trend:hide()
+    end
 end
 
 function Hud:apply_damage_style()
@@ -478,8 +492,8 @@ function Hud:start_damage_fade_in()
     end
     self.fade_state = 'damage_fade_in'
     self.fade_start = self.clock()
-    self.ws:show(); self.dmg:show(); self.avg_label:show(); self.avg_value:show()
-    if self.banner.trend ~= '' then self.avg_trend:show() else self.avg_trend:hide() end
+    self.ws:show(); self.dmg:show()
+    self:show_avg_line()
     if self.sc_visible then self.sc:show() end
     for _, n in ipairs({'ws', 'avg', 'avg_label', 'avg_value', 'avg_trend'}) do set_alpha(self[n], 255) end
     if self.sc_visible and not self.sc_fading then set_alpha(self.sc, 255) end
@@ -548,17 +562,43 @@ function Hud:reset_banner_average()
     self:request_layout_refresh(0.45)
 end
 
+-- //cw avg: show the Avg line (and trend arrow) on the banner. Averages
+-- are tracked either way, for the party panel and //cw stats.
+function Hud:avg_shown()
+    return self.settings.show_banner_avg == true
+end
+
+-- SC Bonus sits directly under the lowest banner line: the Avg line when it
+-- is shown, otherwise the damage line. Worked out from settings (not live
+-- positions) so pop / shake animations don't move it.
+function Hud:sc_anchor_bottom()
+    local s = self.settings
+    if self:avg_shown() then
+        return self:banner_y() + s.avg_gap + text_height(self.avg_label, s.avg_size)
+    end
+    return self:banner_y() + s.line_gap + text_height(self.dmg, s.dmg_size or 42)
+end
+
+-- SC Bonus top edge before it floats (sc_offset_y is a small nudge).
+function Hud:sc_start()
+    return math.floor(self:sc_anchor_bottom() + (self.settings.sc_offset_y or 4))
+end
+
 function Hud:position_sc_line(y)
     local s = self.settings
     self.sc:pos(math.floor(self:banner_x() - (extents(self.sc) / 2)), y)
 end
 
--- Hit flair sits over the right part of the damage number (2.0 layout).
+-- Hit flair (BIG HIT! / MASSIVE HIT!! / CRANKED!!!) starts at the right end
+-- of the damage line, level with it (flair_anchor_ratio 1 = right edge, plus
+-- a small gap), then floats up and fades. flair_gap sets its height.
 function Hud:position_flair(y)
     local s = self.settings
     local dx = self.dmg:pos()
+    local ratio = s.flair_anchor_ratio or 1
+    local gap = ratio >= 1 and math.floor((s.ws_size or 36) * 0.3) or 0
     self.flair:pos(
-        math.floor(dx + (extents(self.dmg) * (s.flair_anchor_ratio or 0.72))),
+        math.floor(dx + (extents(self.dmg) * ratio) + gap),
         math.floor(y + (s.flair_offset_y or -4)))
 end
 
@@ -575,8 +615,8 @@ function Hud:sc_bonus(dmg)
     o:color(120, 255, 255)
     o:stroke_width(s.stroke_width)
     set_alpha(o, 255)
-    self.sc_start_y = self:banner_y() + (s.sc_gap or s.flair_gap or 118)
-    self:position_sc_line(math.floor(self.sc_start_y + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+    self.sc_start_y = self:sc_start()
+    self:position_sc_line(self.sc_start_y)
     self.sc_visible, self.sc_fading = true, true
     self.sc_fade_start = self.clock()
     self.sc_fade_start_alpha = 255
@@ -660,7 +700,8 @@ function Hud:obj_enabled(n)
     if n == 'sc' then return self.settings.sc_enabled ~= false end
     if n == 'sc_detail' then return self:detail_enabled() end
     if n == 'sc_chain_counter' then return self.settings.sc_chain_counter_enabled ~= false end
-    if n == 'avg_trend' then return self.banner.trend ~= '' end
+    if n == 'avg_label' or n == 'avg_value' then return self:avg_shown() end
+    if n == 'avg_trend' then return self:avg_shown() and self.banner.trend ~= '' end
     return true
 end
 
@@ -848,7 +889,8 @@ function Hud:update_frame(now)
             set_alpha(self.sc, math.floor(self.sc_fade_start_alpha * (1 - t)))
             self.sc:show()
             local y = math.floor(self.sc_start_y - ((s.sc_float_distance or 32) * eased))
-            self:position_sc_line(math.floor(y + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+            -- float up, but never into the line above it
+            self:position_sc_line(math.max(y, math.floor(self:sc_anchor_bottom() + 2)))
         end
     end
 
@@ -955,7 +997,7 @@ end
 M.PARTS = {
     {name = 'mb',         label = 'MB popup',      color = {255, 80, 200},  objs = {'mb'}, x = 'mb_offset_x', y = 'mb_offset_y'},
     {name = 'party',      label = 'Party panel',   color = {0, 170, 90},    objs = {'party'}, x = 'party_panel_offset_x', y = 'party_panel_offset_y'},
-    {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_detail', 'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
+    {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter', 'sc_detail'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
     {name = 'banner',     label = 'Banner',        color = {230, 60, 60},   objs = {'ws', 'dmg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}, x = 'banner_offset_x', y = 'banner_offset_y'},
 }
 
@@ -1053,9 +1095,6 @@ function Hud:highlight_parts(on)
         local tag = self.by_name['tag_' .. part.name]
         if on and self:part_enabled(part) then
             local first = self.by_name[part.objs[1]]
-            if part.name == 'sc_bar' and not (self:detail_enabled() and self.detail_value ~= '') then
-                first = self.sc_bar
-            end
             local x, y = first:pos()
             tag:text(' ' .. part.label .. ' ')
             tag:font('Consolas')
@@ -1131,7 +1170,7 @@ function Hud:render_move()
     self.sc_bar_shake_start, self.mb_shake_start = 0, 0
     self:update_display()
     self:position_flair(self:banner_y() + s.flair_gap)
-    self:position_sc_line(math.floor(self:banner_y() + (s.sc_gap or s.flair_gap or 118) + (s.flair_offset_y or -4) + (s.sc_offset_y or 0)))
+    self:position_sc_line(self:sc_start())
     self:position_mb()
     self:position_party()
     for _, part in ipairs(self:parts()) do

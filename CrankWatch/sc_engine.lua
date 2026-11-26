@@ -455,9 +455,9 @@ function Engine:add_skills(t, abilities, active, resource, AM)
                 prop = AM and aeonic or prop
                 local r = self.res[resource]
                 local name = r and res_name(r[ability_id]) or skillchain.en or tostring(ability_id)
-                tt[lv][#tt[lv] + 1] = self.settings.sc_color and
+                tt[lv][#tt[lv] + 1] = {lv = lv, text = self.settings.sc_color and
                     ('%-16s → Lv.%d %s%-14s\\cr'):format(name, lv, colors[prop] or '', prop) or
-                    ('%-16s → Lv.%d %-14s'):format(name, lv, prop)
+                    ('%-16s → Lv.%d %-14s'):format(name, lv, prop)}
             end
         end
     end
@@ -470,6 +470,10 @@ function Engine:add_skills(t, abilities, active, resource, AM)
 end
 
 -- Ivaar's check_results: the "what to use -> what it makes" list.
+-- Ivaar's check_results, plus a row cap (settings.sc_closer_rows, 0 = no
+-- cap). Rows from every source (spells / pet moves / weapon skills) are
+-- sorted by level, highest first, before the cap is applied, so the cap
+-- never drops a Lv.4 weapon skill in favour of a Lv.1 spell.
 function Engine:compute_closers(reson)
     local api = self.api or {}
     local job = self.info.job
@@ -488,7 +492,18 @@ function Engine:compute_closers(reson)
         t = self:add_skills(t, abilities and abilities.weapon_skills, reson.active, 'weapon_skills',
             self.info.aeonic and self:aeonic_am(reson.step))
     end
-    return tconcat(t, '\n')
+    for i, row in ipairs(t) do row.order = i end
+    table.sort(t, function(a, b)
+        if a.lv ~= b.lv then return a.lv > b.lv end
+        return a.order < b.order
+    end)
+    local cap = tonumber(self.settings.sc_closer_rows) or 0
+    local lines = {}
+    for i, row in ipairs(t) do
+        if cap > 0 and i > cap then break end
+        lines[i] = row.text
+    end
+    return tconcat(lines, '\n')
 end
 
 function Engine:expire(now)

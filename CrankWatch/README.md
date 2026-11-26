@@ -81,14 +81,17 @@ positions, fonts and sizes are kept, and new options get their defaults.
 //cw move                drag everything into place, then //cw move again
 ```
 
-Pets (avatars, wyverns, automatons, jug pets) and alliance members are
-tracked by default.
+Pets (avatars, wyverns, automatons, jug pets) are tracked by default.
+Alliance members (the other parties in an alliance) are **not**, so a big
+alliance doesn't flood the banner, popups and panel: `//cw alliance on` if
+you want them. The banner's `Avg:` line is off by default because the party
+panel shows every average: `//cw avg on` to show it.
 
 **First session:** turn on `//cw debug` for one fight. If it prints
 `Unknown message id …` or `Action error …`, note the line so it can be fixed.
 Turn it off with `//cw debug` again.
 
-**Busy alliance?** `//cw bannermode self` keeps the banner to your own WSs,
+**Busy party?** `//cw bannermode self` keeps the banner to your own WSs,
 while the party panel still tallies everyone.
 
 ---
@@ -99,8 +102,9 @@ while the party panel still tallies everyone.
 
 ```
 Last WS: Savage Blade!          ← WS name (or "Name: WS!" in party banner mode)
-   54,321 damage!!   BIG HIT!   ← damage, plus flair for big hits
-Avg: 43,210 ↑                   ← average for whoever's WS is shown, plus trend
+   54,321 damage!! BIG HIT!     ← damage; flair for big hits at the right end
+Avg: 43,210 ↑                   ← optional (//cw avg on): average and trend
+   SC Bonus: 12,345!!           ← when a skillchain closes on your target
 ```
 
 - **Damage colour**: white under 10,000 · blue 10,000+ · gold 50,000+ (BIG HIT!) ·
@@ -108,24 +112,35 @@ Avg: 43,210 ↑                   ← average for whoever's WS is shown, plus tr
   for a streak).
 - **WHIFF!!** with a shake when the WS misses.
 - **Pop**: hits of 50,000+ briefly grow, then settle.
-- **Trend arrow** (after 10 WSs): ↑ when the last 5 WSs average more than 2%
-  above the 20 before them, ↓ when they average more than 2% below, → otherwise.
-- **SC Bonus: N!!** floats up when a WS closes a skillchain on your target
-  (only while the banner is showing).
+- **Avg line** (off by default, `//cw avg on`): the average for whoever's
+  WS is shown. **Trend arrow** (after 10 WSs): ↑ when the last 5 WSs average
+  more than 2% above the 20 before them, ↓ when they average more than 2%
+  below, → otherwise. Averages are tracked either way for the party panel
+  and `//cw stats`.
+- **Hit flair** (BIG HIT! / MASSIVE HIT!! / CRANKED!!!) starts at the right
+  end of the damage line, level with it, then floats up and fades.
+- **SC Bonus: N!!** appears when a WS closes a skillchain on your target
+  (only while the banner is showing). It sits directly under the lowest
+  banner line (the damage line, or the `Avg:` line when that's on) and never
+  rises into it.
 - The banner fades in on each WS, holds for 60 seconds, then fades out.
 
 ### The skillchain block
 
-One block that moves as a unit:
+One block that moves as a unit. The bar stays put at the top; the closer
+list grows downward under it:
 
 ```
+██████████████░░░░              ← countdown bar: red = wait, green = GO, pink = burst
+   SC Window: GO!! 4.2  Chain: 2  ← seconds left, and how many skillchains so far
 Step: 3 → Torcleaver            ← chain step → the WS that made it
 [Light] (Fire,Wind,Lightning,Light)   ← active skillchain, burst elements
 Torcleaver       → Lv.4 Radiance      ← closer list: what you can use next
 Upheaval         → Lv.3 Light         ←   → what it makes (highest level first)
-██████████████░░░░              ← countdown bar: red = wait, green = GO, pink = burst
-   SC Window: GO!! 4.2  Chain: 2  ← seconds left, and how many skillchains so far
 ```
+
+The closer list shows up to 4 rows, highest level first: `//cw sc rows <N>`
+changes that (0 = show all).
 
 - It appears as soon as **anyone** (party or not) opens a skillchain on your
   current target, whether or not the banner is showing.
@@ -192,11 +207,11 @@ on its own**: dragging one never moves another.
 | **Party panel** | WS and Magic Burst tallies |
 | **MB popup** | burst popups |
 
-Inside the Banner, the pieces keep CrankWatch 2.0's alignment: the WS line
-and damage line are centred, the `Avg:` line is left-aligned with the WS
-line, the hit flair sits over the right side of the damage number, and
-SC Bonus is centred below. Adjust the spacing inside it with `//cw gap`,
-`//cw avggap`, `//cw flairgap` and `//cw scoffset`.
+Inside the Banner, the WS line and damage line are centred, the `Avg:` line
+(when on) is left-aligned with the WS line, the hit flair starts at the
+right end of the damage line, and SC Bonus is centred under the lowest line.
+Adjust the spacing inside it with `//cw gap`, `//cw avggap`, `//cw flairgap`
+and `//cw scoffset`. In move mode, a hidden `Avg:` line isn't shown.
 
 - **Grab a part by its name tag** when parts overlap: the tag always picks
   the right one. You can also grab the part itself.
@@ -220,20 +235,29 @@ it moves to the other side of the banner automatically.
 and saves. Sizes, fonts and all other settings are kept. If you changed
 `//cw size`, the banner's line gaps are rebuilt to match that size.
 
-### Sizes and fonts
+### Sizes
+
+One number per block. Everything inside the block (fonts and spacing)
+scales together, so it keeps its shape at any size:
 
 ```
-//cw size 36           banner: sets WS, damage, average and flair sizes and spacing together
-//cw font Highwind     banner font (any installed font name)
-//cw stroke 4          outline thickness
-//cw partysize 13      party panel
-//cw mbsize 24         MB popup
-//cw scdetailsize 13   closer list (in the skillchain block)
-//cw scbarsize 18      countdown bar
-//cw scsize 34         SC Bonus float
+//cw size 36            Banner: WS line, damage, average, hit flair, SC Bonus
+//cw skillchainsize 13  Skillchain block: closer list, bar, timer
+//cw partysize 13       Party panel
+//cw mbsize 24          MB popup
 ```
 
-`//cw layout` prints the current position, gaps and font.
+The numbers above are the defaults. `//cw size` with no number lists all
+four current sizes. After resizing, `//cw move` to re-place blocks if
+needed.
+
+Also useful: `//cw font <name>` (banner font) and `//cw stroke <n>` (outline
+thickness; try 2 or 3 for a smaller banner). `//cw layout` prints the
+current position, gaps and font.
+
+Per-line size commands (`scsize`, `scbarsize`, `scdetailsize`,
+`scbarlabelsize`, `scchaincountersize`) still work for fine-tuning one
+piece, but the block sizes above are all most setups need.
 
 ---
 
@@ -264,12 +288,13 @@ immediately.
 | `//cw bannermode self\|party` | `self` | `self`: only your WSs on the banner. `party`: everyone's, labelled `Name: WS!` |
 | `//cw pets on\|off` | on | Count pets' damaging TP moves and blood pacts |
 | `//cw trusts on\|off` | off | Count trusts' weapon skills |
-| `//cw alliance on\|off` | on | Count alliance members (other parties) as well as your party |
+| `//cw alliance on\|off` | off | Count alliance members (other parties) as well as your party |
 | `//cw aoesum on\|off` | off | AoE WSs: off counts the main target only; on adds up every target hit |
 | `//cw blacklist add <ws>` | | Keep a WS out of stats and the banner. It still counts for skillchains |
 | `//cw blacklist remove <ws>` | | Take a WS off the blacklist |
 | `//cw blacklist list` | Myrkr, Dagan, Starlight, Moonlight | Show the blacklist |
 | `//cw autoreset on\|off` | on | Clear stats automatically when you zone |
+| `//cw avg on\|off` | off | Show the `Avg:` line (and trend arrow) on the banner. Averages are tracked either way |
 
 ### Party panel
 
@@ -278,7 +303,7 @@ immediately.
 | `//cw party on\|off` | off | Show the party panel |
 | `//cw party fade on\|off` | off | On: the panel fades out with the banner. Off: it stays while it has data |
 | `//cw partypos <dx> <dy>` | 260 0 | Panel position relative to the banner centre (or drag it in `//cw move`) |
-| `//cw partysize <n>` | 13 | Panel text size |
+| `//cw partysize <n>` | 13 | **Party panel size** |
 | `//cw testparty` | | Show a sample panel for 10 seconds |
 
 ### Magic Burst popup
@@ -287,7 +312,7 @@ immediately.
 |---|---|---|
 | `//cw mb on\|off` | on | Show MB popups at all |
 | `//cw mbparty on\|off` | on | Also show party members' bursts (named). Off: only yours |
-| `//cw mbsize <n>` | 24 | Popup text size |
+| `//cw mbsize <n>` | 24 | **MB popup size** |
 | `//cw mbx <px>` / `//cw mby <px>` | 95 / 101 | Popup position from the banner centre (or drag it) |
 | `//cw testmb [damage]` | | Show a sample popup |
 
@@ -302,6 +327,7 @@ MB tallies on the party panel are always collected, whatever `mb` and
 | `//cw schud on\|off` | on | On: shows whenever your target has a chain. Off: only while the banner is showing |
 | `//cw sc <part>` | see below | Turn one part on/off **for your current job** |
 | `//cw sc color` | on | Coloured skillchain names in the properties line and closer list |
+| `//cw sc rows <N>` | 4 | Max closer-list rows, highest level first. 0 = all |
 | `//cw scaeonic on\|off` | off | Assume other players have their Aeonic weapon equipped (affects Lv.4 predictions) |
 | `//cw scburst <sec>` | 0 | If two *different* actions hit one target within this many seconds, reset the chain. 0 = off |
 | `//cw scbardelay <sec>` | 3 | Wait time when a WS has no known delay |
@@ -336,14 +362,15 @@ separate on/off for every job:
 | `//cw scsize <n>` | 34 | Text size |
 | `//cw scfade <sec>` | 4 | How long it takes to float away |
 | `//cw scfloat <px>` | 28 | How far it floats up |
-| `//cw scoffset <px>` | 32 | Vertical offset (or drag it) |
+| `//cw scoffset <px>` | 4 | Gap between SC Bonus and the line above it |
 
 ### Banner layout and animation
 
 | Command | Default | What it does |
 |---|---|---|
 | `//cw pos <x> <y>` | 1475 850 | Banner centre on screen. Moves the **whole HUD**; every part keeps its place relative to it |
-| `//cw size <n>` | 36 | Sets all banner sizes and gaps from one number |
+| `//cw size <n>` | 36 | **Banner size.** Scales the WS line, damage, average, flair, SC Bonus and their spacing together (`//cw bannersize` also works). No number: list all block sizes |
+| `//cw skillchainsize <n>` | 13 | **Skillchain block size.** Scales the closer list, bar, timer and their spacing together |
 | `//cw gap <px>` | 45 | Damage line distance below the WS line |
 | `//cw avggap <px>` | 99 | Average line distance below the WS line |
 | `//cw flairgap <px>` | 100 | Flair distance below the WS line |
@@ -405,7 +432,7 @@ pixels.
 | `flair_size` | 32 | Flair size |
 | `line_gap` | 45 | Damage line below the WS line |
 | `avg_gap` | 99 | Average line below the WS line |
-| `flair_gap` | 100 | Flair below the WS line |
+| `flair_gap` | 58 | Hit flair height below the WS line (default: level with the damage line) |
 | `font` | Highwind | Banner font |
 | `stroke_width` | 4 | Outline width |
 | `big_stroke_width` | 5 | Outline width for 50,000+ hits |
@@ -419,7 +446,7 @@ pixels.
 | `flair_fade_duration` | 1.5 | Flair float-away seconds |
 | `flair_shrink_size` | 6 | Flair shrink while fading |
 | `flair_float_distance` | 32 | Flair float distance |
-| `flair_anchor_ratio` | 0.72 | **File only.** Where the flair sits along the damage number (0 = left edge, 1 = right edge) |
+| `flair_anchor_ratio` | 1.0 | **File only.** Where the flair starts along the damage line (0 = left edge, 1 = just past the right end; 2.0 used 0.72) |
 | `flair_offset_y` | −6 | **File only.** Flair vertical nudge |
 | `whiff_shake_duration`, `whiff_shake_strength` | 0.45, 6 | WHIFF shake |
 
@@ -429,8 +456,7 @@ pixels.
 |---|---|---|
 | `sc_enabled` | true | **File only.** Show the SC Bonus float |
 | `sc_size` | 34 | Text size |
-| `sc_gap` | 68 | **File only.** Base distance below the WS line |
-| `sc_offset_y` | 32 | Vertical nudge (`//cw scoffset`) |
+| `sc_offset_y` | 4 | Gap between SC Bonus and the line above it (`//cw scoffset`) |
 | `sc_fade_duration` | 4 | Float-away seconds |
 | `sc_float_distance` | 28 | Float distance |
 
@@ -476,9 +502,11 @@ pixels.
 | Key | Default | Meaning |
 |---|---|---|
 | `banner_mode` | self | `self` or `party` |
+| `show_banner_avg` | false | Show the `Avg:` line on the banner (`//cw avg`) |
+| `sc_closer_rows` | 4 | Max closer-list rows (`//cw sc rows`, 0 = all) |
 | `track_pets` | true | Count pets |
 | `track_trusts` | false | Count trusts |
-| `track_alliance` | true | Count alliance members |
+| `track_alliance` | false | Count alliance members |
 | `aoe_sum` | false | Add up AoE damage across all targets |
 | `ws_blacklist` | Starlight,Moonlight,Myrkr,Dagan | WSs kept out of stats (comma-separated, exact names) |
 | `auto_reset` | true | Clear stats on zoning |
@@ -491,8 +519,8 @@ pixels.
 
 ### No longer used
 
-`pending_timeout`, `flair_duration`, `sc_window`, `sc_bar_max_step` and
-`sc_anchor_ratio` remain in the file so 2.0 settings load cleanly, but
+`pending_timeout`, `flair_duration`, `sc_window`, `sc_bar_max_step`,
+`sc_anchor_ratio` and `sc_gap` remain in the file so 2.0 settings load cleanly, but
 nothing reads them. Chains now close after step 5 or at Lv.4, as in
 SkillChains.
 

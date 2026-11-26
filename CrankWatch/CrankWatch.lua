@@ -39,7 +39,7 @@ local defaults = {
     flair_size = 32,
     line_gap = 45,
     avg_gap = 99,
-    flair_gap = 100,
+    flair_gap = 58,             -- hit flair height: level with the damage line (2.0: 100)
     font = 'Highwind',
     stroke_width = 4,
     big_stroke_width = 5,
@@ -56,7 +56,7 @@ local defaults = {
     flair_fade_duration = 1.5,
     flair_shrink_size = 6,
     flair_float_distance = 32,
-    flair_anchor_ratio = 0.72,
+    flair_anchor_ratio = 1.0,   -- 1 = flair starts at the right end of the damage line (2.0: 0.72)
     sc_anchor_ratio = 0.48,
     flair_offset_y = -6,
     whiff_shake_duration = 0.45,
@@ -67,7 +67,8 @@ local defaults = {
     sc_float_distance = 28,
     sc_gap = 68,
     sc_size = 34,
-    sc_offset_y = 32,
+    sc_offset_y = 4,            -- SC Bonus: gap under the lowest banner line (Avg, or damage when Avg is off)
+    show_banner_avg = false,    -- //cw avg: the Avg line on the banner (party panel keeps averages either way)
     sc_bar_enabled = true,
     sc_bar_gap = 132,
     sc_bar_size = 18,
@@ -102,6 +103,7 @@ local defaults = {
     sc_aeonic = false,          -- assume other players have their Aeonic equipped
     sc_detail_enabled = true,   -- //cw scdetail: Step / properties / closer list block
     sc_detail_size = 13,
+    sc_closer_rows = 4,         -- //cw sc rows: max closer-list rows, highest level first (0 = all)
     sc_detail_font = 'Consolas',
     -- Horizontal offsets set by //cw move (vertical ones reuse the 2.0 gaps).
     banner_offset_x = 0,        -- banner block (WS line, damage, average, flair, SC Bonus), from the HUD centre
@@ -114,7 +116,7 @@ local defaults = {
     banner_mode = 'self',       -- 'self' | 'party'
     track_pets = true,
     track_trusts = false,
-    track_alliance = true,
+    track_alliance = false,     -- //cw alliance: other parties in an alliance (off: no alliance-wide spam)
     banner_hide_on_kill = false, -- //cw killfade: fade the banner when its WS's target dies
     kill_fade_duration = 1.0,   -- seconds for that fade
     party_panel = false,
@@ -575,32 +577,63 @@ local POSITION_KEYS = {
     'banner_offset_x', 'banner_offset_y',
     'line_gap', 'avg_gap', 'flair_gap',
     'flair_offset_y', 'flair_anchor_ratio',
-    'sc_gap', 'sc_offset_y',
+    'sc_offset_y',
     'sc_bar_gap', 'sc_bar_offset_x', 'sc_bar_label_overlap', 'sc_chain_counter_gap',
     'mb_offset_x', 'mb_offset_y',
     'party_panel_offset_x', 'party_panel_offset_y',
 }
 
+-- Block sizing. Each block has one size number; everything inside it
+-- (fonts and spacing) scales in proportion to the defaults, so a block
+-- looks the same at any size, just bigger or smaller.
+local function scaled(key, size, base)
+    local v = defaults[key] * size / base
+    return v < 0 and -math.floor(-v + 0.5) or math.floor(v + 0.5)
+end
+
+-- Banner: the number is the Last WS line's font size (default 36).
+local BANNER_KEYS = {
+    'dmg_size', 'avg_size', 'flair_size', 'sc_size',
+    'line_gap', 'avg_gap', 'flair_gap', 'sc_offset_y', 'flair_offset_y',
+}
+local function set_banner_size(size)
+    settings.ws_size = size
+    for _, k in ipairs(BANNER_KEYS) do
+        settings[k] = scaled(k, size, defaults.ws_size)
+    end
+end
+
+-- Skillchain block: the number is the closer list's font size (default 13).
+local SKILLCHAIN_KEYS = {'sc_bar_size', 'sc_bar_label_size', 'sc_chain_counter_size', 'sc_bar_label_overlap', 'sc_chain_counter_gap'}
+local function set_skillchain_size(size)
+    settings.sc_detail_size = size
+    for _, k in ipairs(SKILLCHAIN_KEYS) do
+        settings[k] = scaled(k, size, defaults.sc_detail_size)
+    end
+end
+
 local function reset_positions()
     for _, k in ipairs(POSITION_KEYS) do
         settings[k] = defaults[k]
     end
-    -- //cw size derives the banner's line gaps from the WS size; keep them
-    -- matched to a non-default size so lines don't overlap.
-    local size = tonumber(settings.ws_size)
-    if size and size ~= defaults.ws_size then
-        settings.line_gap = math.floor(size * 1.22)
-        settings.avg_gap = math.floor(size * 2.40)
-        settings.flair_gap = math.floor(size * 3.25)
-    end
+    -- Spacing inside the banner and skillchain block follows their sizes,
+    -- so lines don't overlap at a non-default size.
+    set_banner_size(tonumber(settings.ws_size) or defaults.ws_size)
+    set_skillchain_size(tonumber(settings.sc_detail_size) or defaults.sc_detail_size)
+end
+
+local function block_sizes_text()
+    return ('Block sizes: banner %s | skillchain %s | party %s | MB %s'):format(
+        tostring(settings.ws_size), tostring(settings.sc_detail_size),
+        tostring(settings.party_panel_size), tostring(settings.mb_size))
 end
 
 local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | testmassive | testbar | testmb [dmg] | testcrankedstreak'
-    .. ' | show | hide | layout | resetpos | pos x y | size 36 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
-    .. ' | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
+    .. ' | show | hide | layout | resetpos | pos x y | size 36 | skillchainsize 13 | partysize 13 | mbsize 24 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
+    .. ' | avg on|off | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
     .. ' | scsize 34 | scfade 4 | scfloat 28 | scoffset 32 | scbar on|off | scbargap 132 | scbarwidth 18 | scbarsize 18 | scbardelay 3 | scbarlabelsize 15 | scbarlabeloverlap 20'
     .. ' | scchaincountersize 18 | scchaincountergap 6 | scdetail on|off | scdetailsize 13 | schud on|off | scburst 0'
-    .. ' | sc burst|pet|props|spell|step|timer|weapon|color | scaeonic on|off'
+    .. ' | sc burst|pet|props|spell|step|timer|weapon|color | sc rows 4 | scaeonic on|off'
     .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
     .. ' | bannermode self|party | party on|off | party fade on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
     .. ' | blacklist add|remove|list <ws> | stats | autoreset on|off | reset [ws|mb|all] | factoryreset | debug'
@@ -680,21 +713,28 @@ windower.register_event('addon command', function(cmd, ...)
             chat('Current center position: ' .. tostring(settings.center_x) .. ', ' .. tostring(settings.center_y) .. '. Usage: //cw pos <x> <y>')
         end
 
-    elseif cmd == 'size' then
+    elseif cmd == 'size' or cmd == 'bannersize' then
         local size = tonumber(arg1)
-        if size then
-            settings.ws_size = size
-            settings.dmg_size = size + 6
-            settings.avg_size = math.max(16, size - 12)
-            settings.flair_size = math.max(18, size - 4)
-            settings.line_gap = math.floor(size * 1.22)
-            settings.avg_gap = math.floor(size * 2.40)
-            settings.flair_gap = math.floor(size * 3.25)
+        if size and size >= 6 then
+            set_banner_size(math.floor(size))
             revisual()
             save_settings()
-            chat('Size saved: WS ' .. settings.ws_size .. ', damage ' .. settings.dmg_size)
+            chat('Banner size saved: ' .. settings.ws_size .. ' (WS line, damage, average, flair and SC Bonus scaled together).')
         else
-            chat('Current sizes: WS ' .. tostring(settings.ws_size) .. ', damage ' .. tostring(settings.dmg_size) .. ', avg ' .. tostring(settings.avg_size) .. ', flair ' .. tostring(settings.flair_size) .. ', SC ' .. tostring(settings.sc_size))
+            chat(block_sizes_text())
+            chat('Usage: //cw size <n> (banner, default 36) | skillchainsize <n> (13) | partysize <n> (13) | mbsize <n> (24)')
+        end
+
+    elseif cmd == 'skillchainsize' then
+        local size = tonumber(arg1)
+        if size and size >= 6 then
+            set_skillchain_size(math.floor(size))
+            revisual()
+            save_settings()
+            chat('Skillchain block size saved: ' .. settings.sc_detail_size .. ' (closer list, bar and timer scaled together).')
+        else
+            chat(block_sizes_text())
+            chat('Usage: //cw skillchainsize <n> (default 13)')
         end
 
     elseif cmd == 'gap' then
@@ -816,6 +856,16 @@ windower.register_event('addon command', function(cmd, ...)
             engine:invalidate()
             save_settings()
             chat('SC colours: ' .. (settings.sc_color and 'ON' or 'OFF'))
+        elseif key == 'rows' then
+            local n = tonumber(arg2)
+            if n and n >= 0 then
+                settings.sc_closer_rows = math.floor(n)
+                engine:invalidate()
+                save_settings()
+                chat('Closer list rows: ' .. (settings.sc_closer_rows == 0 and 'all' or tostring(settings.sc_closer_rows)) .. ' (highest level first).')
+            else
+                chat('Closer list rows: ' .. tostring(settings.sc_closer_rows) .. '. Usage: //cw sc rows <N> (0 = all)')
+            end
         elseif SC_SHOW_KEYS[key] then
             if not job then
                 chat('Job not known yet; try again after logging in.')
@@ -829,7 +879,7 @@ windower.register_event('addon command', function(cmd, ...)
                 chat(('SC %s info will no%s be displayed on %s.'):format(key, had and ' longer' or 'w', job))
             end
         else
-            chat('Usage: //cw sc burst|pet|props|spell|step|timer|weapon|color')
+            chat('Usage: //cw sc burst|pet|props|spell|step|timer|weapon|color | //cw sc rows <N>')
         end
 
     elseif cmd == 'scaeonic' then
@@ -920,7 +970,7 @@ windower.register_event('addon command', function(cmd, ...)
             .. ' | gap ' .. tostring(settings.line_gap)
             .. ' | avggap ' .. tostring(settings.avg_gap)
             .. ' | flairgap ' .. tostring(settings.flair_gap)
-            .. ' | scgap ' .. tostring(settings.sc_gap)
+
             .. ' | font ' .. tostring(settings.font))
 
     elseif cmd == 'reset' or cmd == 'resetavg' then
@@ -935,6 +985,12 @@ windower.register_event('addon command', function(cmd, ...)
 
     elseif cmd == 'autoreset' then
         on_off(arg1, 'auto_reset', 'Auto average reset')
+
+    elseif cmd == 'avg' then
+        on_off(arg1, 'show_banner_avg', 'Avg line on the banner (party panel and //cw stats keep averages)', function()
+            hud:show_avg_line()
+            relayout()
+        end)
 
     elseif cmd == 'killfade' then
         local v = tonumber(arg1)
