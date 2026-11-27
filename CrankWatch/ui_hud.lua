@@ -92,6 +92,7 @@ function M.new(opts)
     self.fade_state = 'hidden'
     self.fade_start = 0
     self.last_ws_time = 0
+    self.ws_queue = {}
     self.is_whiff = false
     self.whiff_shaking, self.whiff_shake_start = false, 0
     self.pop_active, self.pop_start = false, 0
@@ -519,6 +520,66 @@ end
 
 -- entry: {label, damage (number), whiff (bool), avg (number|nil),
 --         trend, trend_color, streak}
+-- Back-to-back WSs: each one stays on the banner for at least
+-- settings.banner_min_show seconds before the next takes over, so fast
+-- WSs are all readable. Your own WS (entry.is_self) goes ahead of queued
+-- party WSs. Past WS_QUEUE_MAX waiting, the oldest party WS is skipped so
+-- the banner never lags far behind. 0 = show every WS instantly.
+M.WS_QUEUE_MAX = 3
+
+function Hud:min_show()
+    return math.max(0, tonumber(self.settings.banner_min_show) or 0)
+end
+
+function Hud:queue_ws(entry)
+    local min, q = self:min_show(), self.ws_queue
+    local banner_free = self.fade_state == 'hidden' or self.manual_hidden
+        or self.clock() - self.last_ws_time >= min
+    if min <= 0 or (#q == 0 and banner_free) then
+        self:show_ws(entry)
+        return 'shown'
+    end
+    local pos = #q + 1
+    if entry.is_self then
+        for i, e in ipairs(q) do
+            if not e.is_self then pos = i break end
+        end
+    end
+    table.insert(q, pos, entry)
+    while #q > M.WS_QUEUE_MAX do
+        local drop = 1
+        for i, e in ipairs(q) do
+            if not e.is_self then drop = i break end
+        end
+        table.remove(q, drop)
+    end
+    return 'queued'
+end
+
+function Hud:pump_ws_queue(now)
+    local q = self.ws_queue
+    if #q == 0 or self.moving then return end
+    if (now or self.clock()) - self.last_ws_time < self:min_show() then return end
+    self:show_ws(table.remove(q, 1))
+end
+
+function Hud:clear_ws_queue()
+    self.ws_queue = {}
+end
+
+-- A skillchain's bonus belongs to the WS that closed it. If that WS is
+-- still waiting in the queue, the bonus shows when the WS does.
+function Hud:sc_bonus_for(actor, dmg)
+    local q = self.ws_queue
+    for i = #q, 1, -1 do
+        if q[i].actor == actor and q[i].sc_bonus == nil then
+            q[i].sc_bonus = dmg
+            return 'queued'
+        end
+    end
+    return self:sc_bonus(dmg)
+end
+
 function Hud:show_ws(entry)
     self.manual_hidden = false
     self.banner_target = entry.target_id
@@ -551,6 +612,7 @@ function Hud:show_ws(entry)
         self:start_pop(b.raw)
     end
     self:start_damage_fade_in()
+    if entry.sc_bonus then self:sc_bonus(entry.sc_bonus) end
 end
 
 function Hud:reset_banner_average()
@@ -832,7 +894,7 @@ function Hud:test_view(now)
         window_total = window,
         step = 1, chain = 0, name = 'Savage Blade',
         props = 'Fragmentation,Scission', elements = '',
-        closers = '', show_timer = true, show_step = true, show_props = true, show_burst = true,
+        closers = '', show_timer = true, show_step = self:part_shown('step'), show_props = true, show_burst = true,
     }
 end
 
@@ -1058,6 +1120,7 @@ function Hud:update_party()
 end
 
 function Hud:update(now)
+    self:pump_ws_queue(now)
     self:update_frame(now)
     self:update_party()
 end
@@ -1133,8 +1196,17 @@ function Hud:move_view()
         step = 3, chain = 2, sc_name = 'Light', name = 'Torcleaver',
         props = 'Light', elements = '(Fire,Wind,Lightning,Light)',
         closers = SAMPLE_CLOSERS,
-        show_timer = true, show_step = true, show_props = true, show_burst = true,
+        show_timer = self:part_shown('timer'), show_step = self:part_shown('step'),
+        show_props = self:part_shown('props'), show_burst = self:part_shown('burst'),
     }
+end
+
+-- Per-job SC part switches for sample views (//cw testbar, move mode).
+-- CrankWatch.lua sets hud.show_part to the engine's check for the current
+-- job; without it (tests, early load) everything shows.
+function Hud:part_shown(key)
+    if self.show_part then return self.show_part(key) and true or false end
+    return true
 end
 
 function Hud:start_move()
@@ -1294,6 +1366,7 @@ end
 -- Stays hidden (SC HUD included) until //cw show or your next banner WS.
 function Hud:hide_all()
     self.manual_hidden = true
+    self.ws_queue = {}
     for _, o in ipairs(self.registry) do o:hide() end
     self.fade_state = 'hidden'
     self.alpha_current = 0

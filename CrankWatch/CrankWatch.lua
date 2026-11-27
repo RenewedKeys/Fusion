@@ -95,7 +95,7 @@ local defaults = {
     -- Two different actions on one target inside this window reset the
     -- chain. 0 = off (Ivaar's engine already restarts at Step 1 when a
     -- follow-up doesn't chain).
-    sc_bar_burst_window = 0,
+    sc_bar_burst_window = 0,    -- no longer used: the chain reset window was removed (SkillChains has none)
 
     -- 3.0 additions
     sc_hud_independent = true,  -- SC HUD shows whenever your target has a resonance
@@ -119,6 +119,7 @@ local defaults = {
     track_alliance = false,     -- //cw alliance: other parties in an alliance (off: no alliance-wide spam)
     banner_hide_on_kill = false, -- //cw killfade: fade the banner when its WS's target dies
     kill_fade_duration = 1.0,   -- seconds for that fade
+    banner_min_show = 1.5,      -- //cw wsqueue: each WS stays at least this long before the next shows (0 = instant)
     party_panel = false,
     party_panel_fade = false,   -- true: party panel fades with the WS banner
     party_panel_mb = true,      -- false: hide the Magic Bursts section of the party panel
@@ -140,6 +141,7 @@ skills.hydrate(res.weapon_skills)
 local engine = sc_engine.new({skills = skills, res = res, settings = settings, api = windower.ffxi})
 local tracker = party_tracker.new({settings = settings, api = windower.ffxi})
 local hud = ui_hud.new({settings = settings, texts = texts})
+hud.show_part = function(key) return engine:show(key) end
 
 local function chat(msg)
     windower.add_to_chat(200, '[CrankWatch] ' .. msg)
@@ -198,7 +200,8 @@ local function action_name(resource, action_id)
     if not name and resource and skills[resource] and skills[resource][action_id] then
         name = skills[resource][action_id].en
     end
-    return name or ('WS #' .. tostring(action_id))
+    local kind = resource == 'weapon_skills' and 'WS' or resource == 'spells' and 'Spell' or 'Action'
+    return name or (kind .. ' #' .. tostring(action_id))
 end
 
 local function canonical_ws_name(name)
@@ -262,7 +265,7 @@ local function record_and_show(info, ws_name, damage, whiff, target_id)
         else
             label = 'Last WS: ' .. ws_name .. '!'
         end
-        hud:show_ws({
+        hud:queue_ws({
             label = label,
             damage = damage,
             whiff = whiff,
@@ -271,6 +274,8 @@ local function record_and_show(info, ws_name, damage, whiff, target_id)
             trend_color = s.trend_color,
             streak = s.streak,
             target_id = target_id,
+            actor = info.id,
+            is_self = info.kind == 'self',
         })
     end
     refresh_party_panel()
@@ -335,10 +340,8 @@ local function handle_sc_events(events, target_id)
                 chat(('Skillchain: %s (step %d) on target %s'):format(ev.skillchain, ev.reson.step, tostring(target_id)))
             end
             if not hud.moving and tracker:resolve_actor(ev.actor) then
-                hud:sc_bonus(ev.damage)
+                hud:sc_bonus_for(ev.actor, ev.damage)
             end
-        elseif ev.kind == 'burst_reset' and debug_mode then
-            chat('Chain reset: simultaneous actions on one target.')
         end
     end
 end
@@ -389,7 +392,7 @@ local function on_action(act)
     local targ = current_target()
     local target_id = targ and targ.id
 
-    -- 1. SC engine sees every actor and every target.
+    -- 1. SC engine sees every actor (main target only, like SkillChains).
     local events = engine:process(rec)
 
     -- 2. Party / pet / trust WS stats. Runs before the SC Bonus so a
@@ -498,6 +501,7 @@ end
 
 windower.register_event('zone change', function()
     engine:reset()
+    hud:clear_ws_queue()
     if not settings.auto_reset then
         if debug_mode then chat('Auto average reset skipped on zone change.') end
         return
@@ -633,9 +637,9 @@ end
 
 local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | testmassive | testbar | testmb [dmg] | testcrankedstreak'
     .. ' | show | hide | layout | resetpos | pos x y | size 36 | skillchainsize 13 | partysize 13 | mbsize 24 | gap 45 | avggap 99 | flairgap 100 | stroke 4 | font Highwind'
-    .. ' | avg on|off | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
+    .. ' | avg on|off | fade on|off | fadetime 60 8 | fadein 0.3 | killfade on|off|<sec> | wsqueue 1.5 | pop on|off | popsize 8 | poptime 0.35 | flairfade 1.5 | flairshrink 0 | flairfloat 32 | whiffshake 6 0.45'
     .. ' | scsize 34 | scfade 4 | scfloat 28 | scoffset 32 | scbar on|off | scbargap 132 | scbarwidth 18 | scbarsize 18 | scbardelay 3 | scbarlabelsize 15 | scbarlabeloverlap 20'
-    .. ' | scchaincountersize 18 | scchaincountergap 6 | scdetail on|off | scdetailsize 13 | schud on|off | scburst 0'
+    .. ' | scchaincountersize 18 | scchaincountergap 6 | scdetail on|off | scdetailsize 13 | schud on|off'
     .. ' | sc burst|pet|props|spell|step|timer|weapon|color | sc rows 4 | scaeonic on|off'
     .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
     .. ' | bannermode self|party | party on|off | party fade on|off | party mb on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
@@ -703,7 +707,7 @@ windower.register_event('addon command', function(cmd, ...)
     elseif cmd == 'scdetailsize' then
         number_setting(arg1, 'sc_detail_size', 'SC detail size', revisual)
     elseif cmd == 'scburst' then
-        number_setting(arg1, 'sc_bar_burst_window', 'Simultaneous-WS reset window (0 = off)', nil, function(v) return math.max(0, v) end)
+        chat('The chain reset window was removed: skillchains now work exactly like SkillChains.')
 
     elseif cmd == 'pos' then
         local x, y = tonumber(arg1), tonumber(arg2)
@@ -1010,6 +1014,9 @@ windower.register_event('addon command', function(cmd, ...)
             hud:show_avg_line()
             relayout()
         end)
+
+    elseif cmd == 'wsqueue' then
+        number_setting(arg1, 'banner_min_show', 'Minimum seconds each WS stays on the banner (0 = instant)', function() if hud:min_show() == 0 then hud:clear_ws_queue() end end, function(v) return math.max(0, v) end)
 
     elseif cmd == 'killfade' then
         local v = tonumber(arg1)

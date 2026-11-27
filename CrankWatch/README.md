@@ -70,7 +70,6 @@ first load. Coming from CrankWatch 2.0? Your positions, fonts and sizes carry
 over. Run these once:
 
 ```
-//cw scburst 0     turn off the old 0.45s chain reset
 //cw reset         clear stats left from older builds
 //cw resetpos      put the blocks in their new default places
 ```
@@ -145,6 +144,12 @@ Avg: 43,210 ↑                   ← optional: //cw avg on
 - **Avg line** (off by default): the average for whoever's WS is shown, plus
   a trend arrow after 10 WSs: ↑ last 5 WSs more than 2% above the 20 before,
   ↓ more than 2% below, → otherwise.
+- **Fast WSs queue up:** when two people WS at the same moment, each WS
+  stays on the banner for at least 1.5 seconds, then the next shows, so none
+  flash by unread. Your own WS goes ahead of waiting party WSs, and if more
+  than 3 are waiting the oldest party WS is skipped so it never falls
+  behind. Stats count every WS instantly either way. `//cw wsqueue <sec>`
+  changes the time (0 = off).
 - **How long it stays:** fades in on each WS, holds 60 seconds, fades out
   over 5. Change with `//cw fadetime <hold> <fade>` or `//cw killfade on`.
 
@@ -167,6 +172,8 @@ Death Blossom    → Lv.3 Light            (highest level first)
 - Appears as soon as **anyone** (in your party or not) starts a skillchain
   on your current target.
 - Each mob keeps its own chain, so changing targets doesn't reset it.
+- Works exactly like SkillChains: only an action's **main target** gets a
+  chain (AoE splash targets don't, just like in the game).
 - The closer list only shows what you can use: your weapon skills, plus
   Immanence on SCH, blue magic on BLU, and pet moves on BST/SMN. It knows
   about Aeonic weapons and Aftermath.
@@ -260,6 +267,7 @@ for a small banner).
 | Clear stats | `//cw reset` (`reset ws` / `reset mb` for one board) |
 | Make the banner go away sooner | `//cw fadetime 10 3` or `//cw killfade on` |
 | Keep the banner up permanently | `//cw fade off` |
+| Give fast WSs more (or less) time on the banner | `//cw wsqueue 2` (0 = instant) |
 | Hide everything right now | `//cw hide` (back with `//cw show` or your next WS) |
 | Move things | `//cw move` |
 | Put everything back where it was | `//cw resetpos` |
@@ -321,6 +329,7 @@ current value. Changes save immediately.
 | `//cw fadein <sec>` | 0.3 | Damage line fade-in time |
 | `//cw killfade on\|off` | off | Fade the banner as soon as the mob it hit dies |
 | `//cw killfade <sec>` | 1 | How long that fade takes |
+| `//cw wsqueue <sec>` | 1.5 | Back-to-back WSs: each stays on the banner at least this long, then the next shows. 0 = each new WS replaces the last instantly |
 | `//cw gap <px>` | 45 | Damage line distance below the WS line |
 | `//cw avggap <px>` | 99 | `Avg:` line distance below the WS line |
 | `//cw flairgap <px>` | 58 | Flair distance below the WS line |
@@ -349,7 +358,6 @@ current value. Changes save immediately.
 | `//cw sc <part>` | see below | Turn one part on/off **for your current job** |
 | `//cw sc <part> all on\|off` | | Turn one part on/off **for every job**, e.g. `//cw sc step all off` |
 | `//cw scaeonic on\|off` | off | Assume other players have their Aeonic weapon (affects Lv.4 predictions) |
-| `//cw scburst <sec>` | 0 | Reset the chain if two *different* actions hit within this many seconds. 0 = off |
 | `//cw scbardelay <sec>` | 3 | Wait time when a WS has no known delay |
 | `//cw scbarwidth <chars>` | 18 | Bar length in characters (min 6) |
 | `//cw scbargap <px>` | 132 | Block's top edge below the banner centre (or drag it) |
@@ -458,6 +466,7 @@ Sizes are font points; positions and gaps are pixels.
 | `fade_out_duration` | 5 | Fade-out seconds |
 | `banner_hide_on_kill` | false | Fade when the WS's target dies (`//cw killfade`) |
 | `kill_fade_duration` | 1.0 | Seconds for that fade |
+| `banner_min_show` | 1.5 | Minimum seconds each WS stays on the banner (`//cw wsqueue`) |
 | `show_banner_avg` | false | Show the `Avg:` line (`//cw avg`) |
 | `pop_enabled`, `pop_duration`, `pop_bonus_size` | true, 0.35, 8 | Big-hit pop |
 | `flair_fade_duration` | 1.5 | Flair float-away seconds |
@@ -489,7 +498,6 @@ Sizes are font points; positions and gaps are pixels.
 | `sc_bar_label_overlap` | 20 | `SC Window:` distance below the bar |
 | `sc_bar_delay` | 3.0 | Wait time when a WS has no known delay |
 | `sc_bar_shake_duration`, `sc_bar_shake_strength` | 0.35, 5 | **File only.** Shake when the bar turns GO |
-| `sc_bar_burst_window` | 0 | Chain reset window for two different actions (0 = off) |
 | `sc_chain_counter_enabled` | true | **File only.** Show `Chain: N` |
 | `sc_chain_counter_size`, `sc_chain_counter_gap` | 18, 6 | `Chain: N` size and gap |
 | `sc_detail_enabled` | true | Properties line and closer list (`//cw scdetail`) |
@@ -544,10 +552,12 @@ Sizes are font points; positions and gaps are pixels.
 <summary><b>Old keys that do nothing now</b></summary>
 
 `pending_timeout`, `flair_duration`, `sc_window`, `sc_bar_max_step`,
-`sc_anchor_ratio` and `sc_gap` stay in the file so 2.0 settings load
+`sc_anchor_ratio`, `sc_gap` and `sc_bar_burst_window` stay in the file so 2.0 settings load
 cleanly, but nothing reads them. Chains close after step 5 or at Lv.4, as in
 SkillChains. Any `sc_chain_info_*` or `sc_detail_gap` keys (from the removed
-chain line) are ignored.
+chain line) are ignored. The old chain-reset window (`//cw scburst`) was
+removed so skillchains behave exactly like SkillChains; the command just
+says so.
 
 </details>
 

@@ -31,9 +31,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 -- aeonic_prop, aeonic_am, chain buffs, chainbound, timers) is unchanged.
 -- CrankWatch changes:
 --   * state lives on an engine object instead of globals
---   * every target in an action packet gets its resonance (Ivaar: first only)
 --   * guards for buffs[info.player] / check_weapon being nil
---   * optional simultaneous-WS reset (settings.sc_bar_burst_window, 0 = off)
+-- Like Ivaar, only the first (main) target of an action is tracked; the
+-- game only lets the main target be skillchained.
 --   * view() returns plain data for ui_hud instead of drawing text
 
 require('luau')
@@ -50,11 +50,6 @@ local function S_(t)
 end
 
 M.message_ids = S_{110, 185, 187, 317, 802}
--- AoE secondary targets report plain "<target> takes N damage" (264).
--- For TP moves (WS / mob TP / blood pacts) those targets get the
--- properties too; spells still need a chain buff as in Ivaar.
-M.aoe_message_ids = S_{264}
-M.tp_categories = S_{'weaponskill_finish', 'mob_tp_finish', 'avatar_tp_finish'}
 M.skillchain_ids = S_{288,289,290,291,292,293,294,295,296,297,298,299,300,301,
     385,386,387,388,389,390,391,392,393,394,395,396,397,767,768,769,770}
 M.buff_dur = {[163]=40, [164]=30, [470]=60}
@@ -307,20 +302,21 @@ function Engine:aeonic_prop(ability, actor)
     return ability.skillchain
 end
 
-local function check_buff(t, i)
-    if t[i] == true or (type(t[i]) == 'number' and t[i] - os.time() > 0) then
+local function check_buff(t, i, now)
+    if t[i] == true or (type(t[i]) == 'number' and t[i] - (now or os.time()) > 0) then
         return true
     end
     t[i] = nil
 end
 
-function M.chain_buff(t)
+-- now: the engine's clock (self.time()); os.time() when omitted, as in Ivaar.
+function M.chain_buff(t, now)
     local i = t[164] and 164 or t[470] and 470
-    if i and check_buff(t, i) then
+    if i and check_buff(t, i, now) then
         t[i] = nil
         return true
     end
-    return t[163] and check_buff(t, 163) or false
+    return t[163] and check_buff(t, 163, now) or false
 end
 
 function Engine:apply_properties(target, resource, action_id, properties, delay, step, closed, bound, extra)
@@ -357,19 +353,7 @@ function Engine:process_target(rec, target, ability)
     local message_id = action.message_id
     local add_effect = action.add_effect
     local param = action.spell_param
-    local now = self.clock()
-    local extra = {actor = actor, last_time = now}
-
-    -- Optional CrankWatch layer: two different actions inside the burst
-    -- window on one target reset the chain instead of advancing it.
-    local window = tonumber(self.settings.sc_bar_burst_window) or 0
-    local prev = self.resonating[target.id]
-    if window > 0 and prev and prev.last_time and (now - prev.last_time) < window
-            and (prev.actor ~= actor or prev.id ~= action_id) and ability then
-        local reson = self:apply_properties(target.id, resource, action_id,
-            self:aeonic_prop(ability, actor), self:default_delay(ability), 1, nil, nil, extra)
-        return {kind = 'burst_reset', target_id = target.id, actor = actor, reson = reson}
-    end
+    local extra = {actor = actor}
 
     if add_effect and action.conclusion and M.skillchain_ids[tonumber(add_effect.message_id)] then
         local skillchain = add_effect.animation and ucfirst(add_effect.animation)
@@ -394,8 +378,7 @@ function Engine:process_target(rec, target, ability)
             skillchain = skillchain, damage = extra.sc_damage}
 
     elseif ability and (M.message_ids[message_id]
-            or M.aoe_message_ids[message_id] and M.tp_categories[rec.category]
-            or message_id == 2 and self.buffs[actor] and M.chain_buff(self.buffs[actor])) then
+            or message_id == 2 and self.buffs[actor] and M.chain_buff(self.buffs[actor], self.time())) then
         local reson = self:apply_properties(target.id, resource, action_id,
             self:aeonic_prop(ability, actor), self:default_delay(ability), 1, nil, nil, extra)
         return {kind = 'open', target_id = target.id, actor = actor, reson = reson}
@@ -412,6 +395,7 @@ function Engine:process_target(rec, target, ability)
 end
 
 -- Feed one normalised record. Returns a list of events (possibly empty).
+-- As in Ivaar's action_handler, only the first target is looked at.
 function Engine:process(rec)
     local events = {}
     if not rec or not M.categories[rec.category] or rec.param == 0 then
@@ -419,13 +403,9 @@ function Engine:process(rec)
     end
     local skills = self.skills
     local ability = rec.resource and skills[rec.resource] and skills[rec.resource][rec.action_id]
-    for _, target in ipairs(rec.targets) do
-        local ev = self:process_target(rec, target, ability)
-        if ev then
-            events[#events + 1] = ev
-            if ev.kind == 'buff' then break end
-        end
-    end
+    local target = rec.targets[1]
+    local ev = target and self:process_target(rec, target, ability)
+    if ev then events[1] = ev end
     return events
 end
 
