@@ -169,6 +169,23 @@ Death Blossom    → Lv.3 Light            (highest level first)
 | 🟩 green, `GO!!` | Use your closer now |
 | 🟪 pink, `Burst!` | The chain is closed: nuke for a Magic Burst |
 
+**Skillchain name colours** (turn off with `//cw sc color`)
+
+| Colour | Skillchains |
+|---|---|
+| pale gold | Light, Transfixion (Radiance is a brighter near-white) |
+| violet | Darkness, Compression (Umbra is a brighter violet) |
+| orange | Fusion |
+| soft pink | Fragmentation |
+| bronze | Gravitation |
+| azure | Distortion |
+| red | Liquefaction |
+| sand / amber | Scission |
+| blue | Reverberation |
+| frost | Induration |
+| green | Detonation |
+| magenta | Impaction |
+
 - Appears as soon as **anyone** (in your party or not) starts a skillchain
   on your current target.
 - Each mob keeps its own chain, so changing targets doesn't reset it.

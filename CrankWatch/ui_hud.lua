@@ -813,14 +813,14 @@ function Hud:render_sc(view)
         if view.show_timer then timer = (' %.1f'):format(view.wait_remaining) end
         bar:color(255, 70, 70)
         bar:text(M.make_bar(width, view.wait_remaining / math.max(view.wait_total, 0.01)))
-        status:color(255, 40, 40)
+        status:color(255, 70, 70)
         status:text('Wait. . .' .. timer)
     elseif view.phase == 'go' then
         if not first and self.sc_phase == 'wait' then self.sc_bar_shake_start = now end
         if view.show_timer then timer = (' %.1f'):format(view.remaining) end
         bar:color(80, 255, 120)
         bar:text(M.make_bar(width, view.remaining / math.max(view.window_total, 0.01)))
-        status:color(80, 255, 80)
+        status:color(80, 255, 120)
         status:text('GO!!' .. timer)
     else -- burst
         if view.show_timer then timer = (' %d'):format(math.floor(view.remaining)) end
@@ -1412,7 +1412,7 @@ function Hud:apply_all_visual_settings()
     self.sc:color(120, 255, 255)
     self.sc_bar:color(80, 255, 120)
     self.sc_bar_label:color(255, 255, 255)
-    self.sc_bar_status:color(80, 255, 80)
+    self.sc_bar_status:color(80, 255, 120)
     self.sc_chain_counter:color(255, 255, 255)
     self.sc_detail:color(255, 255, 255)
     self.party:color(255, 255, 255)
