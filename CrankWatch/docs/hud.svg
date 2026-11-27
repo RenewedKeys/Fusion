@@ -50,7 +50,7 @@
   <text class="tag" x="159" y="235">Skillchain</text>
 
   <text class="mono" x="162" y="268" font-size="20" fill="#50ff78" xml:space="preserve">█████████████░░░░░</text>
-  <text class="hud" x="170" y="294" font-size="15" stroke-width="3" fill="#ffffff">SC Window: <tspan fill="#50ff50">GO!! 4.2</tspan>   Chain: 1</text>
+  <text class="hud" x="170" y="294" font-size="15" stroke-width="3" fill="#ffffff">SC Window: <tspan fill="#50ff78">GO!! 4.2</tspan>   Chain: 1</text>
   <g class="mono" font-size="13" fill="#ffffff">
     <text x="162" y="322" xml:space="preserve"><tspan fill="#ff9a3c">[Fusion]</tspan> (Fire, Light)</text>
     <text x="162" y="344" xml:space="preserve">Savage Blade   → Lv.3 <tspan fill="#ffffaa">Light</tspan></text>
