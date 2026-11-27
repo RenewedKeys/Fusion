@@ -391,12 +391,13 @@ local function on_action(act)
 
     -- 1. SC engine sees every actor and every target.
     local events = engine:process(rec)
-    handle_sc_events(events, target_id)
 
-    -- 2. Party / pet / trust WS stats.
+    -- 2. Party / pet / trust WS stats. Runs before the SC Bonus so a
+    --    closing WS brings the banner up first and its bonus can show.
     if TRACK_CATEGORIES:contains(rec.category) and rec.param ~= 0 then
         handle_ws(rec)
     end
+    handle_sc_events(events, target_id)
 
     -- 3. Magic Burst popup on your current target.
     handle_mb(rec, target_id)
