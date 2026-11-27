@@ -77,17 +77,17 @@ M.sc_by_message = {
 }
 
 local colors = {}            -- Color codes by Sammeh
-colors.Light =         '\\cs(255,255,255)'
+colors.Light =         '\\cs(255,255,170)'
 colors.Dark =          '\\cs(0,0,204)'
 colors.Ice =           '\\cs(0,255,255)'
-colors.Water =         '\\cs(0,0,255)'
+colors.Water =         '\\cs(100,130,255)'
 colors.Earth =         '\\cs(153,76,0)'
 colors.Wind =          '\\cs(102,255,102)'
 colors.Fire =          '\\cs(255,0,0)'
 colors.Lightning =     '\\cs(255,0,255)'
 colors.Gravitation =   '\\cs(102,51,0)'
 colors.Fragmentation = '\\cs(250,156,247)'
-colors.Fusion =        '\\cs(255,102,102)'
+colors.Fusion =        '\\cs(255,154,60)'
 colors.Distortion =    '\\cs(51,153,255)'
 colors.Darkness =      colors.Dark
 colors.Umbra =         colors.Dark

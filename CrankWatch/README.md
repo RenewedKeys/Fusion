@@ -203,6 +203,7 @@ Blackmage       7   38,940   52,300
 - Stays on screen while it has anything recorded; hides itself when empty.
 - Magic Bursts are counted on **any** mob, not only your target.
 - Clear it with `//cw reset` (or `reset ws` / `reset mb`).
+- WS totals only? `//cw party mb off` hides the Magic Bursts section.
 
 ---
 
@@ -254,6 +255,7 @@ for a small banner).
 | See everyone's WSs on the banner | `//cw bannermode party` |
 | See only my own WSs on the banner | `//cw bannermode self` |
 | See party totals | `//cw party on` |
+| Hide Magic Bursts on the party panel | `//cw party mb off` |
 | Print stats to chat | `//cw stats` |
 | Clear stats | `//cw reset` (`reset ws` / `reset mb` for one board) |
 | Make the banner go away sooner | `//cw fadetime 10 3` or `//cw killfade on` |
@@ -395,6 +397,7 @@ MB totals on the party panel are always collected, whatever `mb` and
 | `//cw party on\|off` | off | Show the party panel |
 | `//cw partysize <n>` | 13 | **Party panel size** |
 | `//cw party fade on\|off` | off | On: fades out with the banner. Off: stays while it has data |
+| `//cw party mb on\|off` | on | Off: hide the Magic Bursts section, show WS totals only (bursts are still tallied) |
 | `//cw partypos <dx> <dy>` | 260 0 | Position from the banner centre (or drag it) |
 
 ### Test displays (never touch your stats)
@@ -529,6 +532,7 @@ Sizes are font points; positions and gaps are pixels.
 | `auto_reset` | true | Clear stats on zoning |
 | `party_panel` | false | Show the party panel |
 | `party_panel_fade` | false | Fade the panel with the banner |
+| `party_panel_mb` | true | Show the Magic Bursts section (`//cw party mb`) |
 | `party_panel_size` | 13 | Panel text size |
 | `party_panel_font` | Consolas | **File only.** Panel font (keep it monospaced) |
 | `party_panel_offset_x`, `party_panel_offset_y` | 260, 0 | Position from the HUD centre |

@@ -121,6 +121,7 @@ local defaults = {
     kill_fade_duration = 1.0,   -- seconds for that fade
     party_panel = false,
     party_panel_fade = false,   -- true: party panel fades with the WS banner
+    party_panel_mb = true,      -- false: hide the Magic Bursts section of the party panel
     party_panel_size = 13,
     party_panel_font = 'Consolas',
     party_panel_offset_x = 260,
@@ -223,6 +224,7 @@ local function refresh_party_panel()
         return
     end
     local rows, mbs = tracker:sorted(), tracker:sorted_mb()
+    if settings.party_panel_mb == false then mbs = {} end
     if #rows == 0 and #mbs == 0 then
         hud:set_party_lines(nil)
         return
@@ -635,7 +637,7 @@ local HELP = 'Commands: //cw test | testwhite | testwhiff | testbig | testred | 
     .. ' | scchaincountersize 18 | scchaincountergap 6 | scdetail on|off | scdetailsize 13 | schud on|off | scburst 0'
     .. ' | sc burst|pet|props|spell|step|timer|weapon|color | sc rows 4 | scaeonic on|off'
     .. ' | move | mb on|off | mbparty on|off | mbsize 24 | mbx 95 | mby -31'
-    .. ' | bannermode self|party | party on|off | party fade on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
+    .. ' | bannermode self|party | party on|off | party fade on|off | party mb on|off | testparty | partypos dx dy | partysize 13 | pets on|off | trusts on|off | alliance on|off | aoesum on|off'
     .. ' | blacklist add|remove|list <ws> | stats | autoreset on|off | reset [ws|mb|all] | factoryreset | debug'
 
 local SC_SHOW_KEYS = {burst = true, pet = true, props = true, spell = true, step = true, timer = true, weapon = true}
@@ -920,6 +922,8 @@ windower.register_event('addon command', function(cmd, ...)
     elseif cmd == 'party' then
         if tostring(arg1 or ''):lower() == 'fade' then
             on_off(arg2, 'party_panel_fade', 'Party panel fades with the banner', function() hud:update_party() end)
+        elseif tostring(arg1 or ''):lower() == 'mb' then
+            on_off(arg2, 'party_panel_mb', 'Party panel Magic Bursts section', refresh_party_panel)
         else
             on_off(arg1, 'party_panel', 'Party panel', refresh_party_panel)
         end
