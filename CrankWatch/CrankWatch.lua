@@ -194,6 +194,26 @@ local function current_target()
     return windower.ffxi.get_mob_by_target('t', 'bt')
 end
 
+-- The game can drop your target the moment a mob dies, sometimes before
+-- the killing blow's packet is read. Every mob you targeted in the last few
+-- seconds still counts as "your target", so a skillchain or Magic Burst that
+-- kills it still gets its SC Bonus / MB popup.
+local TARGET_GRACE = 3
+local recent_targets = {}  -- mob id -> last time it was your target
+
+local function note_target(now)
+    local targ = current_target()
+    if targ and targ.id then recent_targets[targ.id] = now end
+    for id, t in pairs(recent_targets) do
+        if now - t > TARGET_GRACE then recent_targets[id] = nil end
+    end
+end
+
+local function is_my_target(id, now)
+    local t = id and recent_targets[id]
+    return t ~= nil and now - t <= TARGET_GRACE
+end
+
 local function action_name(resource, action_id)
     local r = resource and res[resource]
     local name = r and sc_engine.res_name(r[action_id])
@@ -333,11 +353,11 @@ local function handle_ws(rec)
     record_and_show(info, ws_name, damage, whiff, main_target.id)
 end
 
-local function handle_sc_events(events, target_id)
+local function handle_sc_events(events, now)
     for _, ev in ipairs(events) do
-        if ev.kind == 'skillchain' and ev.target_id == target_id then
+        if ev.kind == 'skillchain' and is_my_target(ev.target_id, now) then
             if debug_mode then
-                chat(('Skillchain: %s (step %d) on target %s'):format(ev.skillchain, ev.reson.step, tostring(target_id)))
+                chat(('Skillchain: %s (step %d) on target %s'):format(ev.skillchain, ev.reson.step, tostring(ev.target_id)))
             end
             if not hud.moving and tracker:resolve_actor(ev.actor) then
                 hud:sc_bonus_for(ev.actor, ev.damage)
@@ -349,7 +369,7 @@ end
 -- Magic Bursts: every party burst on any mob goes on the tally board
 -- (main target's damage, or all targets with aoe_sum); the popup only
 -- shows bursts on your current target.
-local function handle_mb(rec, target_id)
+local function handle_mb(rec, now)
     local tally, popup_dmg, found = 0, nil, false
     for i, t in ipairs(rec.targets) do
         for _, a in ipairs(t.actions) do
@@ -358,7 +378,7 @@ local function handle_mb(rec, target_id)
                     tally = tally + (a.param or 0)
                 end
                 found = true
-                if t.id == target_id and not popup_dmg then popup_dmg = a.param or 0 end
+                if not popup_dmg and is_my_target(t.id, now) then popup_dmg = a.param or 0 end
             end
         end
     end
@@ -389,8 +409,8 @@ local function on_action(act)
     local rec = sc_engine.parse_action(act, ActionPacket)
     if not rec then return end
 
-    local targ = current_target()
-    local target_id = targ and targ.id
+    local now = os.clock()
+    note_target(now)
 
     -- 1. SC engine sees every actor (main target only, like SkillChains).
     local events = engine:process(rec)
@@ -400,10 +420,10 @@ local function on_action(act)
     if TRACK_CATEGORIES:contains(rec.category) and rec.param ~= 0 then
         handle_ws(rec)
     end
-    handle_sc_events(events, target_id)
+    handle_sc_events(events, now)
 
     -- 3. Magic Burst popup on your current target.
-    handle_mb(rec, target_id)
+    handle_mb(rec, now)
 end
 
 -- The listener's return value would modify the packet, so always return nil.
@@ -458,6 +478,9 @@ local function check_kill_fade()
     local id = hud.banner_target
     if not id or not settings.banner_hide_on_kill then return end
     if target_dead(id) then
+        -- Don't cut off what just appeared: a skillchain that kills the mob
+        -- still gets its full SC Bonus float first (checked again each frame).
+        if hud:kill_fade_waiting() then return end
         hud:kill_fade(settings.kill_fade_duration)
         if debug_mode then chat('Banner target died: fading out.') end
     end
@@ -480,6 +503,7 @@ end)
 
 windower.register_event('prerender', function()
     local now = os.clock()
+    note_target(now)
     if not engine.info.job then init_player() end
     if not hud.moving then
         local view = engine:view(current_target(), now) or hud:test_view(now)

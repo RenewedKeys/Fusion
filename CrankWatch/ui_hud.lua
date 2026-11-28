@@ -1026,6 +1026,14 @@ function Hud:update_frame(now)
     end
 end
 
+-- killfade waits while the SC Bonus is still floating, or while the WS on
+-- the banner hasn't had its minimum time (//cw wsqueue) yet. Otherwise a
+-- skillchain that kills the mob would vanish before you can read it.
+function Hud:kill_fade_waiting(now)
+    if self.sc_visible then return true end
+    return (now or self.clock()) - (self.last_ws_time or 0) < self:min_show()
+end
+
 -- killfade: the mob the banner's WS hit is dead (or gone). Fade the banner
 -- out over `duration` seconds now instead of waiting for the hold timer.
 -- Works with fade off too (the banner would otherwise stay up for good).

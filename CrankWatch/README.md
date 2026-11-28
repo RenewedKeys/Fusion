@@ -212,6 +212,10 @@ Blackmage MB: 35,120!!      ← a party member's, named
 Shows bursts on your **current target**. Bursts that land together stack, up
 to 4 lines. `//cw mbparty off` shows only yours.
 
+A mob you targeted in the last 3 seconds still counts, because the game can
+drop your target the instant a mob dies. That way a burst or skillchain that
+kills the mob still gets its popup and SC Bonus.
+
 ### Party panel
 
 ```
@@ -344,7 +348,7 @@ current value. Changes save immediately.
 | `//cw fade on\|off` | on | Off: the banner stays up permanently |
 | `//cw fadetime <hold> <out>` | 60 5 | Seconds to hold, then seconds to fade out |
 | `//cw fadein <sec>` | 0.3 | Damage line fade-in time |
-| `//cw killfade on\|off` | off | Fade the banner as soon as the mob it hit dies |
+| `//cw killfade on\|off` | off | Fade the banner as soon as the mob it hit dies (waits for any SC Bonus to finish first) |
 | `//cw killfade <sec>` | 1 | How long that fade takes |
 | `//cw wsqueue <sec>` | 1.5 | Back-to-back WSs: each stays on the banner at least this long, then the next shows. 0 = each new WS replaces the last instantly |
 | `//cw gap <px>` | 45 | Damage line distance below the WS line |
