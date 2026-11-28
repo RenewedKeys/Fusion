@@ -78,6 +78,10 @@ end
 M.BANNER = {'ws', 'dmg', 'avg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}
 M.SC = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter', 'sc_detail'}
 
+-- Move-mode name tag font size. Declared before M.new so the constructor
+-- sees it (a later local would read as a nil global there).
+local TAG_SIZE = 10
+
 -- opts: settings, texts (library), clock
 function M.new(opts)
     local self = setmetatable({}, Hud)
@@ -894,7 +898,8 @@ function Hud:test_view(now)
         window_total = window,
         step = 1, chain = 0, name = 'Savage Blade',
         props = 'Fragmentation,Scission', elements = '',
-        closers = '', show_timer = true, show_step = self:part_shown('step'), show_props = true, show_burst = true,
+        closers = '', show_timer = self:part_shown('timer'), show_step = self:part_shown('step'),
+        show_props = self:part_shown('props'), show_burst = self:part_shown('burst'),
     }
 end
 
@@ -1026,11 +1031,13 @@ function Hud:update_frame(now)
     end
 end
 
--- killfade waits while the SC Bonus is still floating, or while the WS on
+-- killfade waits while the SC Bonus is still floating, while WSs are queued,
+-- or while the WS on
 -- the banner hasn't had its minimum time (//cw wsqueue) yet. Otherwise a
 -- skillchain that kills the mob would vanish before you can read it.
 function Hud:kill_fade_waiting(now)
-    if self.sc_visible then return true end
+    -- a queued WS is about to take the banner; it brings its own kill check
+    if self.sc_visible or #self.ws_queue > 0 then return true end
     return (now or self.clock()) - (self.last_ws_time or 0) < self:min_show()
 end
 
@@ -1070,8 +1077,6 @@ M.PARTS = {
     {name = 'sc_bar',     label = 'Skillchain',    color = {60, 120, 255},  objs = {'sc_bar', 'sc_bar_label', 'sc_bar_status', 'sc_chain_counter', 'sc_detail'}, x = 'sc_bar_offset_x', y = 'sc_bar_gap'},
     {name = 'banner',     label = 'Banner',        color = {230, 60, 60},   objs = {'ws', 'dmg', 'avg_label', 'avg_value', 'avg_trend', 'flair', 'sc'}, x = 'banner_offset_x', y = 'banner_offset_y'},
 }
-
-local TAG_SIZE = 10
 
 local SAMPLE_PARTY = tconcat({
     ('%-12s %4s %8s %8s'):format('Party WS', '#', 'Avg', 'Peak'),

@@ -51,7 +51,10 @@ end
 
 M.message_ids = S_{110, 185, 187, 317, 802}
 M.skillchain_ids = S_{288,289,290,291,292,293,294,295,296,297,298,299,300,301,
-    385,386,387,388,389,390,391,392,393,394,395,396,397,767,768,769,770}
+    385,386,387,388,389,390,391,392,393,394,395,396,397,398,767,768,769,770}
+-- Skillchain messages where the mob absorbs the damage ("recovers N hit
+-- points"). They still count for the chain, but N is healing, not damage.
+M.absorb_ids = S_{385,386,387,388,389,390,391,392,393,394,395,396,397,398,769,770}
 M.buff_dur = {[163]=40, [164]=30, [470]=60}
 M.categories = S_{
     'weaponskill_finish',
@@ -69,6 +72,11 @@ M.sc_by_message = {
     [296]='Induration', [297]='Reverberation', [298]='Transfixion', [299]='Scission',
     [300]='Detonation', [301]='Impaction',
     [767]='Radiance', [768]='Umbra', [769]='Radiance', [770]='Umbra',
+    -- the same skillchains when the mob absorbs the damage (recovers HP)
+    [385]='Light', [386]='Darkness', [387]='Gravitation', [388]='Fragmentation',
+    [389]='Distortion', [390]='Fusion', [391]='Compression', [392]='Liquefaction',
+    [393]='Induration', [394]='Reverberation', [395]='Transfixion', [396]='Scission',
+    [397]='Detonation', [398]='Impaction',
 }
 
 local colors = {}            -- CrankWatch palette: bright enough to read over any zone
@@ -372,10 +380,11 @@ function Engine:process_target(rec, target, ability)
         end
 
         local closed = step > 5 or level == 4
-        extra.sc_damage = tonumber(add_effect.param) or 0
+        local absorbed = M.absorb_ids[tonumber(add_effect.message_id)] and true or false
+        extra.sc_damage = absorbed and 0 or (tonumber(add_effect.param) or 0)
         local new = self:apply_properties(target.id, resource, action_id, {skillchain}, delay, step, closed, nil, extra)
         return {kind = 'skillchain', target_id = target.id, actor = actor, reson = new,
-            skillchain = skillchain, damage = extra.sc_damage}
+            skillchain = skillchain, damage = extra.sc_damage, absorbed = absorbed}
 
     elseif ability and (M.message_ids[message_id]
             or message_id == 2 and self.buffs[actor] and M.chain_buff(self.buffs[actor], self.time())) then

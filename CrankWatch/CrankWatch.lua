@@ -359,7 +359,8 @@ local function handle_sc_events(events, now)
             if debug_mode then
                 chat(('Skillchain: %s (step %d) on target %s'):format(ev.skillchain, ev.reson.step, tostring(ev.target_id)))
             end
-            if not hud.moving and tracker:resolve_actor(ev.actor) then
+            -- an absorbed skillchain healed the mob: no SC Bonus for it
+            if not ev.absorbed and not hud.moving and tracker:resolve_actor(ev.actor) then
                 hud:sc_bonus_for(ev.actor, ev.damage)
             end
         end
@@ -457,6 +458,7 @@ end)
 windower.register_event('logout', function()
     engine:logout()
     hud:hide_all()
+    recent_targets = {}
 end)
 
 windower.register_event('job change', function(job_id)
@@ -526,6 +528,7 @@ end
 windower.register_event('zone change', function()
     engine:reset()
     hud:clear_ws_queue()
+    recent_targets = {}
     if not settings.auto_reset then
         if debug_mode then chat('Auto average reset skipped on zone change.') end
         return
